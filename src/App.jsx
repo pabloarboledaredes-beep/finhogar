@@ -228,7 +228,7 @@ const LoginScreen = ({ onLogin, loading }) => (
 const Dashboard = ({ state }) => {
   const totalIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
   const totalSpent = state.budgets.reduce((s, b) => s + b.spent, 0);
-  const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
+  const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
   const totalLoanDue = state.loans.reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return s + pmt; }, 0);
   const totalDebtDue = totalCardDue + totalLoanDue;
   const netAvail = totalIncome - totalSpent - totalDebtDue;
@@ -280,7 +280,7 @@ const Dashboard = ({ state }) => {
         {state.cards.map(c => (
           <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
             <div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{c.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>Tarjeta · Cierre día {c.dueDate}</div></div>
-            <Tag color={C.accentOrange}>{fmtShort(c.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, c.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0))}</Tag>
+            <Tag color={C.accentOrange}>{fmtShort(c.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : c.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0))}</Tag>
           </div>
         ))}
         {state.loans.map(l => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return (<div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{l.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{l.bank} · Crédito</div></div><Tag color={C.accentPurple}>{fmtShort(pmt)}</Tag></div>); })}
@@ -364,7 +364,7 @@ const Gastos = ({ state, setState }) => {
   const CATS = state.categories || DEFAULT_CATS;
   const [showExpForm, setShowExpForm] = useState(false);
   const [showBudgetForm, setShowBudgetForm] = useState(false);
-  const [expForm, setExpForm] = useState({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, date: getToday() });
+  const [expForm, setExpForm] = useState({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, zeroInterest: false, date: getToday() });
   const [budgetForm, setBudgetForm] = useState({ category: "", customCategory: "", limit: "", useCustom: false });
   const [editBudget, setEditBudget] = useState(null);
   const [editBudgetForm, setEditBudgetForm] = useState({ category: "", limit: "" });
@@ -377,11 +377,11 @@ const Gastos = ({ state, setState }) => {
     const cardId = expForm.payMethod === "Tarjeta de crédito" ? +expForm.cardId : null;
     const installments = expForm.payMethod === "Tarjeta de crédito" ? +expForm.installments : 1;
     if (cardId && installments > 0) {
-      setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: [...c.purchases, { id: Date.now(), desc: expForm.desc, amount: amt, installments, date: expForm.date, paidInstallments: 0 }] } : c), budgets: s.budgets.map(b => b.category === expForm.category ? { ...b, spent: b.spent + amt } : b), expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId, installments, date: expForm.date }, ...s.expenses] }));
+      setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: [...c.purchases, { id: Date.now(), desc: expForm.desc, amount: amt, installments, zeroInterest: expForm.zeroInterest, date: expForm.date, paidInstallments: 0 }] } : c), budgets: s.budgets.map(b => b.category === expForm.category ? { ...b, spent: b.spent + amt } : b), expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId, installments, date: expForm.date }, ...s.expenses] }));
     } else {
       setState(s => ({ ...s, budgets: s.budgets.map(b => b.category === expForm.category ? { ...b, spent: b.spent + amt } : b), expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId: null, installments: 1, date: expForm.date }, ...s.expenses] }));
     }
-    setExpForm({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, date: getToday() });
+    setExpForm({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, zeroInterest: false, date: getToday() });
     setShowExpForm(false);
   };
 
@@ -451,7 +451,60 @@ const Gastos = ({ state, setState }) => {
             {expForm.payMethod === "Tarjeta de crédito" && (<>
               <div><Label>Tarjeta</Label><select value={expForm.cardId} onChange={e => setExpForm(f => ({ ...f, cardId: e.target.value }))} style={inputSt}><option value="">Selecciona tarjeta...</option>{state.cards.map(c => { const h = state.members.find(m => m.id === c.holder); return <option key={c.id} value={c.id}>{c.name} ({h?.name})</option>; })}</select></div>
               <div><Label>Cuotas</Label><select value={expForm.installments} onChange={e => setExpForm(f => ({ ...f, installments: +e.target.value }))} style={inputSt}>{[1,2,3,6,9,12,18,24,36].map(n => <option key={n} value={n}>{n === 1 ? "1 cuota (contado)" : `${n} cuotas`}</option>)}</select></div>
-              {expForm.amount && expForm.cardId && expForm.installments > 1 && (() => { const card = state.cards.find(c => c.id === +expForm.cardId); const rows = buildPurchaseAmortization(+expForm.amount, expForm.installments, card?.rate || 2.0); return (<Box style={{ background: C.surfaceAlt, border: "none" }}><div style={{ color: C.accentOrange, fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Vista previa amortización</div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}><thead><tr>{["#","Cuota","Interés","Capital","Saldo"].map(h => <th key={h} style={{ color: C.textMuted, padding: "5px 4px", textAlign: "right" }}>{h}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={i}><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{r.cuota}</td><td style={{ color: C.text, padding: "4px", textAlign: "right", fontWeight: 600 }}>{fmtShort(r.pmt)}</td><td style={{ color: C.accentRed, padding: "4px", textAlign: "right" }}>{fmtShort(r.interest)}</td><td style={{ color: C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.capital)}</td><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{fmtShort(r.balance)}</td></tr>)}</tbody></table></div></Box>); })()}
+              {expForm.installments > 1 && (
+                <button
+                  onClick={() => setExpForm(f => ({ ...f, zeroInterest: !f.zeroInterest }))}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "12px 14px",
+                    borderRadius: 10, border: `1.5px solid ${expForm.zeroInterest ? C.accent : C.border}`,
+                    background: expForm.zeroInterest ? C.accent + "10" : C.surfaceAlt,
+                    cursor: "pointer", fontFamily: "inherit", width: "100%", textAlign: "left",
+                  }}
+                >
+                  <div style={{
+                    width: 20, height: 20, borderRadius: 6, border: `2px solid ${expForm.zeroInterest ? C.accent : C.border}`,
+                    background: expForm.zeroInterest ? C.accent : "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  }}>
+                    {expForm.zeroInterest && <span style={{ color: "#fff", fontSize: 13, fontWeight: 900 }}>✓</span>}
+                  </div>
+                  <div>
+                    <div style={{ color: expForm.zeroInterest ? C.accent : C.text, fontWeight: 700, fontSize: 13 }}>
+                      Compra sin intereses (0%)
+                    </div>
+                    <div style={{ color: C.textMuted, fontSize: 11, marginTop: 1 }}>
+                      {expForm.zeroInterest ? "✅ Cuotas iguales sin cobro de interés" : "Las cuotas incluyen la tasa de la tarjeta"}
+                    </div>
+                  </div>
+                </button>
+              )}
+              {expForm.amount && expForm.cardId && expForm.installments > 1 && (() => {
+                const card = state.cards.find(c => c.id === +expForm.cardId);
+                const rate = expForm.zeroInterest ? 0 : (card?.rate || 2.0);
+                const rows = buildPurchaseAmortization(+expForm.amount, expForm.installments, rate);
+                const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
+                return (
+                  <Box style={{ background: C.surfaceAlt, border: "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ color: C.accentOrange, fontSize: 12, fontWeight: 700 }}>Vista previa amortización</div>
+                      <Tag color={expForm.zeroInterest ? C.accent : C.accentOrange}>
+                        {expForm.zeroInterest ? "Sin interés" : `Tasa ${card?.rate || 2}%/mes`}
+                      </Tag>
+                    </div>
+                    {totalInterest > 0 && (
+                      <div style={{ color: C.accentRed, fontSize: 11, marginBottom: 6, fontWeight: 600 }}>
+                        Total interés a pagar: {fmt(totalInterest)}
+                      </div>
+                    )}
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                        <thead><tr>{["#","Cuota","Interés","Capital","Saldo"].map(h => <th key={h} style={{ color: C.textMuted, padding: "5px 4px", textAlign: "right" }}>{h}</th>)}</tr></thead>
+                        <tbody>{rows.map((r, i) => <tr key={i}><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{r.cuota}</td><td style={{ color: C.text, padding: "4px", textAlign: "right", fontWeight: 600 }}>{fmtShort(r.pmt)}</td><td style={{ color: r.interest > 0 ? C.accentRed : C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.interest)}</td><td style={{ color: C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.capital)}</td><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{fmtShort(r.balance)}</td></tr>)}</tbody>
+                      </table>
+                    </div>
+                  </Box>
+                );
+              })()}
             </>)}
             <div style={{ overflow: "hidden" }}><Label>Fecha</Label><DatePicker value={expForm.date} onChange={v => setExpForm(f => ({ ...f, date: v }))} /></div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={addExpense} style={btnPrimary()}>Registrar</button><button onClick={() => setShowExpForm(false)} style={btnGhost}>Cancelar</button></div>
@@ -509,7 +562,7 @@ const Deudas = ({ state, setState }) => {
   const [tab, setTab] = useState("cards");
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [loanForm, setLoanForm] = useState({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "" });
-  const cardSummary = useMemo(() => state.cards.map(card => { const ap = card.purchases.filter(p => p.paidInstallments < p.installments); const currentDue = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0); const totalBalance = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, card.rate); return sum + (rows[p.paidInstallments]?.balance || 0) + (rows[p.paidInstallments]?.capital || 0); }, 0); return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) }; }), [state.cards]);
+  const cardSummary = useMemo(() => state.cards.map(card => { const ap = card.purchases.filter(p => p.paidInstallments < p.installments); const currentDue = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0); const totalBalance = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.balance || 0) + (rows[p.paidInstallments]?.capital || 0); }, 0); return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) }; }), [state.cards]);
   const totalCardDue = cardSummary.reduce((s, c) => s + c.currentDue, 0);
   const totalLoanDue = state.loans.reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments); return s + pmt; }, 0);
   const payPurchaseInstallment = (cardId, purchaseId) => setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: c.purchases.map(p => p.id === purchaseId ? { ...p, paidInstallments: Math.min(p.paidInstallments + 1, p.installments) } : p) } : c) }));
@@ -546,10 +599,10 @@ const Deudas = ({ state, setState }) => {
             </div>
             <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Compras en cuotas:</div>
             {card.purchases.length === 0 && <div style={{ color: C.textMuted, fontSize: 12 }}>Sin compras registradas</div>}
-            {card.purchases.map(p => { const rows = buildPurchaseAmortization(p.amount, p.installments, card.rate); const remaining = p.installments - p.paidInstallments; const nextRow = rows[p.paidInstallments]; const totalInterest = rows.reduce((s, r) => s + r.interest, 0); const isDone = p.paidInstallments >= p.installments; return (
+            {card.purchases.map(p => { const effectiveRate = p.zeroInterest ? 0 : card.rate; const rows = buildPurchaseAmortization(p.amount, p.installments, effectiveRate); const remaining = p.installments - p.paidInstallments; const nextRow = rows[p.paidInstallments]; const totalInterest = rows.reduce((s, r) => s + r.interest, 0); const isDone = p.paidInstallments >= p.installments; return (
               <div key={p.id} style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 10, border: `1.5px solid ${isDone ? C.accent + "44" : C.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700 }}>{p.desc} {isDone && "✓"}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
+                  <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>{p.desc} {isDone && "✓"}{p.zeroInterest && <Tag color={C.accent}>0% interés</Tag>}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
                   <button onClick={() => deletePurchase(card.id, p.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
                 </div>
                 {!isDone && (<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10, marginBottom: 10 }}>
@@ -758,7 +811,7 @@ const Asesor = ({ state }) => {
 
   const totalIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
   const totalSpent = state.budgets.reduce((s, b) => s + b.spent, 0);
-  const totalCardDue = state.cards.reduce((cs, card) => cs + (card.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
+  const totalCardDue = state.cards.reduce((cs, card) => cs + (card.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
   const totalLoanDue = state.loans.reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return s + pmt; }, 0);
   const debtRatio = ((totalCardDue + totalLoanDue) / (totalIncome || 1)) * 100;
   const totalSaved = state.savings.reduce((s, sv) => s + sv.current, 0);
@@ -1089,7 +1142,7 @@ const Configuracion = ({ state, setState }) => {
             const holder = state.members.find(m => m.id === c.holder);
             const activePurchases = (c.purchases || []).filter(p => p.paidInstallments < p.installments);
             const totalBalance = activePurchases.reduce((sum, p) => {
-              const rows = buildPurchaseAmortization(p.amount, p.installments, c.rate);
+              const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : c.rate);
               return sum + (rows[p.paidInstallments]?.balance || 0);
             }, 0);
             const utilization = c.limit > 0 ? (totalBalance / c.limit) * 100 : 0;
