@@ -124,6 +124,38 @@ const NavBtn = ({ icon, label, active, onClick }) => (
 const Divider = () => <div style={{ height: 1, background: C.border, margin: "10px 0" }} />;
 const Label = ({ children }) => <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 5 }}>{children}</div>;
 
+// ── DATE PICKER — 3 selectores nativos, funciona igual en iPhone y desktop ────
+const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+function dateToparts(iso) {
+  const [y, m, d] = iso.split("-");
+  return { d: parseInt(d,10), m: parseInt(m,10), y: parseInt(y,10) };
+}
+function partsToDays(m, y) {
+  return new Date(y, m, 0).getDate();
+}
+const DatePicker = ({ value, onChange }) => {
+  const { d, m, y } = dateToparts(value);
+  const maxDay = partsToDays(m, y);
+  const days = Array.from({ length: maxDay }, (_, i) => i + 1);
+  const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i);
+  const sel = { ...inputSt, flex: 1, padding: "10px 8px", fontSize: 13 };
+  const pad = (n) => String(n).padStart(2, "0");
+  const update = (nd, nm, ny) => onChange(`${ny}-${pad(nm)}-${pad(Math.min(nd, partsToDays(nm, ny)))}`);
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      <select value={d} onChange={e => update(+e.target.value, m, y)} style={sel}>
+        {days.map(n => <option key={n} value={n}>{pad(n)}</option>)}
+      </select>
+      <select value={m} onChange={e => update(d, +e.target.value, y)} style={{ ...sel, flex: 2 }}>
+        {MONTHS.map((name, i) => <option key={i+1} value={i+1}>{name}</option>)}
+      </select>
+      <select value={y} onChange={e => update(d, m, +e.target.value)} style={sel}>
+        {years.map(n => <option key={n} value={n}>{n}</option>)}
+      </select>
+    </div>
+  );
+};
+
 const AmortTable = ({ rows, title, color = C.accent }) => {
   const [open, setOpen] = useState(false);
   return (
@@ -291,7 +323,7 @@ const Ingresos = ({ state, setState }) => {
             <div><Label>Descripción</Label><input placeholder="Ej: Honorarios, consultoría..." value={form.desc} onChange={e => setForm(f => ({ ...f, desc: e.target.value }))} style={inputSt} /></div>
             <div><Label>Valor ($)</Label><input type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} style={inputSt} /></div>
             <div><Label>Tipo</Label><select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={inputSt}><option value="fijo">Fijo (recurrente)</option><option value="variable">Variable (esporádico)</option></select></div>
-            <div style={{ overflow: "hidden" }}><Label>Fecha</Label><input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputSt, fontSize: 13 }} /></div>
+            <div><Label>Fecha</Label><DatePicker value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} /></div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={addIncome} style={btnPrimary()}>Guardar</button><button onClick={() => setShowForm(false)} style={btnGhost}>Cancelar</button></div>
           </div>
         </Box>
@@ -404,7 +436,7 @@ const Gastos = ({ state, setState }) => {
               <div><Label>Cuotas</Label><select value={expForm.installments} onChange={e => setExpForm(f => ({ ...f, installments: +e.target.value }))} style={inputSt}>{[1,2,3,6,9,12,18,24,36].map(n => <option key={n} value={n}>{n === 1 ? "1 cuota (contado)" : `${n} cuotas`}</option>)}</select></div>
               {expForm.amount && expForm.cardId && expForm.installments > 1 && (() => { const card = state.cards.find(c => c.id === +expForm.cardId); const rows = buildPurchaseAmortization(+expForm.amount, expForm.installments, card?.rate || 2.0); return (<Box style={{ background: C.surfaceAlt, border: "none" }}><div style={{ color: C.accentOrange, fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Vista previa amortización</div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}><thead><tr>{["#","Cuota","Interés","Capital","Saldo"].map(h => <th key={h} style={{ color: C.textMuted, padding: "5px 4px", textAlign: "right" }}>{h}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={i}><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{r.cuota}</td><td style={{ color: C.text, padding: "4px", textAlign: "right", fontWeight: 600 }}>{fmtShort(r.pmt)}</td><td style={{ color: C.accentRed, padding: "4px", textAlign: "right" }}>{fmtShort(r.interest)}</td><td style={{ color: C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.capital)}</td><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{fmtShort(r.balance)}</td></tr>)}</tbody></table></div></Box>); })()}
             </>)}
-            <div style={{ overflow: "hidden" }}><Label>Fecha</Label><input type="date" value={expForm.date} onChange={e => setExpForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputSt, fontSize: 13 }} /></div>
+            <div style={{ overflow: "hidden" }}><Label>Fecha</Label><DatePicker value={expForm.date} onChange={v => setExpForm(f => ({ ...f, date: v }))} /></div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={addExpense} style={btnPrimary()}>Registrar</button><button onClick={() => setShowExpForm(false)} style={btnGhost}>Cancelar</button></div>
           </div>
         </Box>
