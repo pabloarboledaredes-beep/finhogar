@@ -753,35 +753,184 @@ const Calendario = ({ state, setState }) => {
 
 // ── ASESOR ────────────────────────────────────────────────────────────────────
 const Asesor = ({ state }) => {
-  const [advice, setAdvice] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [topic, setTopic] = useState("general");
+  const [topic, setTopic] = useState("");
+  const [copied, setCopied] = useState(false);
+
   const totalIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
   const totalSpent = state.budgets.reduce((s, b) => s + b.spent, 0);
-  const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
+  const totalCardDue = state.cards.reduce((cs, card) => cs + (card.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
   const totalLoanDue = state.loans.reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return s + pmt; }, 0);
   const debtRatio = ((totalCardDue + totalLoanDue) / (totalIncome || 1)) * 100;
-  const getAdvice = async () => {
-    setLoading(true); setAdvice("");
-    const ctx = `Eres un asesor financiero experto para hogares colombianos. Responde en español colombiano, claro y práctico. Máx 220 palabras. Sin markdown, solo texto y saltos de línea.\n\nDatos del hogar:\n- Miembros: ${state.members.map(m=>m.name).join(" y ")} (ambos independientes)\n- Ingreso total: ${fmt(totalIncome)}\n- Gasto mensual: ${fmt(totalSpent)}\n- Cuotas tarjetas: ${fmt(totalCardDue)}/mes\n- Cuotas créditos: ${fmt(totalLoanDue)}/mes\n- Índice endeudamiento: ${fmtPct(debtRatio)}\n- Ahorro total: ${fmt(state.savings.reduce((s,sv)=>s+sv.current,0))}\n\nTema: "${topic}"\nDa 3 consejos concretos y accionables.`;
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: ctx }] }) });
-      const data = await res.json();
-      setAdvice(data.content?.[0]?.text || "No se pudo obtener consejo.");
-    } catch { setAdvice("Error de conexión. Intenta de nuevo."); }
-    setLoading(false);
+  const totalSaved = state.savings.reduce((s, sv) => s + sv.current, 0);
+
+  const buildPrompt = () => {
+    const miembros = state.members.map(m => m.name).join(" y ");
+    const ingresos = state.incomes.map(i => {
+      const m = state.members.find(mb => mb.id === i.memberId);
+      return `  · ${m?.name}: ${i.desc} — ${fmt(i.amount)} (${i.type})`;
+    }).join("\n") || "  Sin ingresos registrados";
+
+    const presupuestos = state.budgets.map(b =>
+      `  · ${b.category}: gastado ${fmt(b.spent)} de ${fmt(b.limit)} (${fmtPct((b.spent / (b.limit||1)) * 100)})`
+    ).join("\n") || "  Sin presupuestos";
+
+    const tarjetas = state.cards.map(c => {
+      const due = (c.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => {
+        const rows = buildPurchaseAmortization(p.amount, p.installments, c.rate);
+        return sum + (rows[p.paidInstallments]?.pmt || 0);
+      }, 0);
+      return `  · ${c.name}: cuota mes ${fmt(Math.round(due))}, tasa ${c.rate}% mensual`;
+    }).join("\n") || "  Sin tarjetas";
+
+    const creditos = state.loans.map(l => {
+      const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments);
+      const remaining = l.totalInstallments - l.paidInstallments;
+      return `  · ${l.name} (${l.bank}): cuota ${fmt(pmt)}/mes, ${remaining} cuotas restantes, tasa ${l.rate}% mensual`;
+    }).join("\n") || "  Sin créditos";
+
+    const ahorros = state.savings.map(s =>
+      `  · ${s.name}: ${fmt(s.current)} de ${fmt(s.goal)} (${fmtPct((s.current / (s.goal||1)) * 100)})`
+    ).join("\n") || "  Sin metas de ahorro";
+
+    const pagos = (state.fixedBills || []).map(b =>
+      `  · ${b.concept}: ${fmt(b.amount)}/mes (día ${b.dueDay})`
+    ).join("\n") || "  Sin pagos fijos";
+
+    return `Hola Claude, soy ${miembros}, una pareja de trabajadores independientes en Medellín, Colombia. Necesito tu asesoría financiera basada en mis datos reales del hogar.
+
+═══ DATOS FINANCIEROS DEL HOGAR ═══
+
+📊 RESUMEN
+  · Ingreso total mensual: ${fmt(totalIncome)}
+  · Gasto mensual total: ${fmt(totalSpent)} (${fmtPct((totalSpent/(totalIncome||1))*100)} del ingreso)
+  · Cuotas tarjetas: ${fmt(Math.round(totalCardDue))}/mes
+  · Cuotas créditos: ${fmt(Math.round(totalLoanDue))}/mes
+  · Índice de endeudamiento: ${fmtPct(debtRatio)} del ingreso
+  · Total ahorrado: ${fmt(totalSaved)}
+  · Flujo libre: ${fmt(totalIncome - totalSpent - totalCardDue - totalLoanDue)}
+
+💰 INGRESOS
+${ingresos}
+
+📋 PRESUPUESTOS
+${presupuestos}
+
+💳 TARJETAS DE CRÉDITO
+${tarjetas}
+
+🏦 CRÉDITOS
+${creditos}
+
+🐷 AHORROS
+${ahorros}
+
+📅 PAGOS FIJOS MENSUALES
+${pagos}
+
+═══════════════════════════════════
+
+🎯 TEMA QUE QUIERO ANALIZAR:
+${topic || "(describe aquí tu pregunta o tema)"}
+
+Por favor dame consejos concretos, accionables y con números específicos basados en mi situación real.`;
   };
-  const topics = [{ id: "general", label: "Panorama general", icon: "🎯" }, { id: "deudas", label: "Manejo de deudas", icon: "💳" }, { id: "ahorro", label: "Estrategia de ahorro", icon: "🐷" }, { id: "presupuesto", label: "Optimizar gastos", icon: "📊" }, { id: "independientes", label: "Finanzas independientes", icon: "🧾" }, { id: "emergencia", label: "Fondo de emergencia", icon: "🛡️" }];
+
+  const openClaude = () => {
+    const prompt = buildPrompt();
+    const encoded = encodeURIComponent(prompt);
+    // Open Claude.ai with the prompt pre-filled
+    window.open(`https://claude.ai/new?q=${encoded}`, "_blank");
+  };
+
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(buildPrompt());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div><div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>💡 Asesor Financiero IA</div><div style={{ color: C.textMuted, fontSize: 12 }}>Análisis basado en tus datos reales del hogar</div></div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{topics.map(t => <button key={t.id} onClick={() => setTopic(t.id)} style={{ padding: "8px 14px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 700, border: `1.5px solid ${topic === t.id ? C.accent : C.border}`, background: topic === t.id ? C.accent + "10" : "transparent", color: topic === t.id ? C.accent : C.textMuted, fontFamily: "inherit" }}>{t.icon} {t.label}</button>)}</div>
-      <button onClick={getAdvice} disabled={loading} style={{ background: loading ? C.surfaceAlt : C.accent, color: loading ? C.textMuted : "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 800, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>{loading ? "⏳ Analizando tus finanzas..." : "🚀 Obtener Asesoría Personalizada"}</button>
-      {advice && <Box style={{ borderColor: C.accent + "44", background: C.accent + "08" }}><div style={{ color: C.accent, fontWeight: 800, marginBottom: 10 }}>📋 Tu Asesoría</div><div style={{ color: C.text, fontSize: 14, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{advice}</div></Box>}
+      <div>
+        <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>💡 Asesor Financiero IA</div>
+        <div style={{ color: C.textMuted, fontSize: 12 }}>Consulta a Claude con tus datos reales del hogar</div>
+      </div>
+
+      {/* How it works */}
+      <Box style={{ background: C.accent + "08", borderColor: C.accent + "33" }}>
+        <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>¿Cómo funciona?</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {["1️⃣ Escribe el tema o pregunta que quieres analizar", "2️⃣ La app arma un mensaje con todos tus datos financieros reales", "3️⃣ Te abre Claude.ai con todo listo — solo da clic en enviar"].map((s, i) => (
+            <div key={i} style={{ color: C.textMuted, fontSize: 13 }}>{s}</div>
+          ))}
+        </div>
+      </Box>
+
+      {/* Topic input */}
+      <Box>
+        <Label>¿Sobre qué quieres asesoría hoy?</Label>
+        <textarea
+          value={topic}
+          onChange={e => setTopic(e.target.value)}
+          placeholder={"Ej: ¿Cómo puedo pagar mis deudas más rápido?\nEj: ¿Estamos ahorrando suficiente para emergencias?\nEj: ¿Cuánto deberíamos destinar a inversión?\nEj: Analiza si nuestro presupuesto está bien distribuido"}
+          rows={4}
+          style={{ ...inputSt, resize: "none", lineHeight: 1.6, fontSize: 13 }}
+        />
+      </Box>
+
+      {/* Preview of what will be sent */}
+      <Box style={{ background: C.surfaceAlt, border: `1.5px solid ${C.border}` }}>
+        <div style={{ color: C.textMuted, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>📋 RESUMEN QUE SE ENVIARÁ A CLAUDE</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          {[
+            ["Ingresos", fmt(totalIncome)],
+            ["Gastos", fmt(totalSpent)],
+            ["Cuotas deudas/mes", fmt(Math.round(totalCardDue + totalLoanDue))],
+            ["Endeudamiento", fmtPct(debtRatio)],
+            ["Total ahorrado", fmt(totalSaved)],
+            ["Tarjetas", `${state.cards.length} tarjeta(s)`],
+            ["Créditos", `${state.loans.length} crédito(s)`],
+            ["Pagos fijos", `${(state.fixedBills||[]).length} pago(s)`],
+          ].map(([label, value]) => (
+            <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: C.textMuted, fontSize: 12 }}>{label}</span>
+              <span style={{ color: C.text, fontSize: 12, fontWeight: 600 }}>{value}</span>
+            </div>
+          ))}
+        </div>
+      </Box>
+
+      {/* Action buttons */}
+      <button onClick={openClaude} style={{
+        background: C.accent, color: "#fff", border: "none", borderRadius: 12,
+        padding: "15px", fontSize: 15, fontWeight: 800, cursor: "pointer",
+        fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      }}>
+        🚀 Abrir Claude con mis datos
+      </button>
+
+      <button onClick={copyPrompt} style={{
+        background: copied ? C.accent + "10" : "transparent",
+        color: copied ? C.accent : C.textMuted,
+        border: `1.5px solid ${copied ? C.accent : C.border}`,
+        borderRadius: 12, padding: "12px", fontSize: 13, fontWeight: 700,
+        cursor: "pointer", fontFamily: "inherit",
+      }}>
+        {copied ? "✓ Copiado al portapapeles" : "📋 Copiar mensaje (para pegarlo manualmente)"}
+      </button>
+
+      <div style={{ color: C.textMuted, fontSize: 11, textAlign: "center", lineHeight: 1.6 }}>
+        Si Claude.ai no abre automáticamente con el mensaje,<br />usa el botón "Copiar" y pégalo en claude.ai
+      </div>
+
+      {/* Alertas automáticas */}
       <div style={{ color: C.text, fontWeight: 700, fontSize: 15 }}>⚠️ Alertas del Sistema</div>
-      {debtRatio > 40 && <Box style={{ borderColor: C.accentRed + "44", background: C.accentRed + "08" }}><div style={{ color: C.accentRed, fontWeight: 800 }}>🚨 Endeudamiento crítico</div><div style={{ color: C.textMuted, fontSize: 13, marginTop: 4 }}>Tus cuotas mensuales representan el {fmtPct(debtRatio)} de los ingresos. El límite saludable es 35%.</div></Box>}
-      {state.savings.find(s => s.name === "Fondo de Emergencia")?.current < totalIncome * 3 && <Box style={{ borderColor: C.accentBlue + "44", background: C.accentBlue + "08" }}><div style={{ color: C.accentBlue, fontWeight: 800 }}>🛡️ Fondo de emergencia insuficiente</div><div style={{ color: C.textMuted, fontSize: 13, marginTop: 4 }}>Como trabajadores independientes, deben tener mínimo 6 meses de gastos ({fmt(totalSpent * 6)}) en reserva.</div></Box>}
-      {state.incomes.filter(i => i.type === "variable").reduce((s, i) => s + i.amount, 0) > totalIncome * 0.4 && <Box style={{ borderColor: C.accentOrange + "44", background: C.accentOrange + "08" }}><div style={{ color: C.accentOrange, fontWeight: 800 }}>📊 Alta dependencia de ingresos variables</div><div style={{ color: C.textMuted, fontSize: 13, marginTop: 4 }}>Más del 40% de los ingresos son variables. Planea el presupuesto con base en los ingresos fijos solamente.</div></Box>}
+      {debtRatio > 40 && <Box style={{ borderColor: C.accentRed + "44", background: C.accentRed + "08" }}><div style={{ color: C.accentRed, fontWeight: 800 }}>🚨 Endeudamiento crítico</div><div style={{ color: C.textMuted, fontSize: 13, marginTop: 4 }}>Tus cuotas representan el {fmtPct(debtRatio)} del ingreso. Lo saludable es máximo 35%.</div></Box>}
+      {totalSaved < totalIncome * 3 && <Box style={{ borderColor: C.accentBlue + "44", background: C.accentBlue + "08" }}><div style={{ color: C.accentBlue, fontWeight: 800 }}>🛡️ Fondo de emergencia insuficiente</div><div style={{ color: C.textMuted, fontSize: 13, marginTop: 4 }}>Como independientes necesitan mínimo 6 meses de gastos ({fmt(totalSpent * 6)}) en reserva.</div></Box>}
+      {state.incomes.filter(i => i.type === "variable").reduce((s, i) => s + i.amount, 0) > totalIncome * 0.4 && <Box style={{ borderColor: C.accentYellow + "44", background: C.accentYellow + "08" }}><div style={{ color: C.accentYellow, fontWeight: 800 }}>📊 Alta dependencia de ingresos variables</div><div style={{ color: C.textMuted, fontSize: 13, marginTop: 4 }}>Más del 40% de los ingresos son variables. Planea el presupuesto solo con los ingresos fijos.</div></Box>}
     </div>
   );
 };
