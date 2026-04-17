@@ -654,55 +654,211 @@ const Deudas = ({ state, setState }) => {
 
 // ── AHORROS ───────────────────────────────────────────────────────────────────
 const Ahorros = ({ state, setState }) => {
+  const [savingsTab, setSavingsTab] = useState("mensual");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", goal: "", current: "" });
+  const [form, setForm] = useState({ name: "", goal: "", current: "", type: "mensual", linkedBill: "" });
   const [contribution, setContribution] = useState({});
-  const addSaving = () => { if (!form.name || !form.goal) return; const colors = [C.accent, C.accentBlue, C.accentPurple, C.accentOrange, C.accentYellow, C.accentPink]; setState(s => ({ ...s, savings: [...s.savings, { id: Date.now(), name: form.name, goal: +form.goal, current: +form.current || 0, color: colors[s.savings.length % colors.length] }] })); setForm({ name: "", goal: "", current: "" }); setShowForm(false); };
-  const contribute = (id) => { const amt = +contribution[id]; if (!amt || amt <= 0) return; setState(s => ({ ...s, savings: s.savings.map(sv => sv.id === id ? { ...sv, current: Math.min(sv.current + amt, sv.goal) } : sv) })); setContribution(c => ({ ...c, [id]: "" })); };
-  const deleteSaving = (id) => setState(s => ({ ...s, savings: s.savings.filter(sv => sv.id !== id) }));
-  const totalSaved = state.savings.reduce((s, sv) => s + sv.current, 0);
-  const totalGoals = state.savings.reduce((s, sv) => s + sv.goal, 0);
+
+  const COLORS_LIST = [C.accentBlue, C.accentPurple, C.accentPink, C.accentYellow, C.accentOrange, C.accent, C.accentRed];
+
+  // Separate savings by type — backwards compatible (old savings without type → largo)
+  const mensualSavings = state.savings.filter(s => s.type === "mensual");
+  const largoSavings = state.savings.filter(s => !s.type || s.type === "largo");
+
+  const totalMensual = mensualSavings.reduce((s, sv) => s + sv.current, 0);
+  const totalMensualGoal = mensualSavings.reduce((s, sv) => s + sv.goal, 0);
+  const totalLargo = largoSavings.reduce((s, sv) => s + sv.current, 0);
+  const totalLargoGoal = largoSavings.reduce((s, sv) => s + sv.goal, 0);
+  const totalSaved = totalMensual + totalLargo;
+
   const monthlyIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
+
+  const addSaving = () => {
+    if (!form.name || !form.goal) return;
+    const existing = state.savings || [];
+    const color = COLORS_LIST[existing.length % COLORS_LIST.length];
+    setState(s => ({
+      ...s,
+      savings: [...s.savings, {
+        id: Date.now(),
+        name: form.name,
+        goal: +form.goal,
+        current: +form.current || 0,
+        color,
+        type: form.type,
+        linkedBill: form.linkedBill || null,
+      }]
+    }));
+    setForm({ name: "", goal: "", current: "", type: savingsTab, linkedBill: "" });
+    setShowForm(false);
+  };
+
+  const contribute = (id) => {
+    const amt = +contribution[id];
+    if (!amt || amt <= 0) return;
+    setState(s => ({ ...s, savings: s.savings.map(sv => sv.id === id ? { ...sv, current: Math.min(sv.current + amt, sv.goal) } : sv) }));
+    setContribution(c => ({ ...c, [id]: "" }));
+  };
+
+  const deleteSaving = (id) => setState(s => ({ ...s, savings: s.savings.filter(sv => sv.id !== id) }));
+
+  const SavingCard = ({ s }) => {
+    const pct = (s.current / s.goal) * 100;
+    const remaining = s.goal - s.current;
+    const linkedBillObj = s.linkedBill ? (state.fixedBills || []).find(b => b.id === +s.linkedBill) : null;
+    const monthsTo = remaining / (monthlyIncome * 0.1 || 1);
+    const isComplete = s.current >= s.goal;
+    return (
+      <Box style={{ borderColor: isComplete ? C.accent + "66" : s.color + "33" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ color: isComplete ? C.accent : C.text, fontWeight: 800, fontSize: 15 }}>{s.name}</div>
+              {isComplete && <Tag color={C.accent}>✓ Completo</Tag>}
+            </div>
+            {linkedBillObj && <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>📅 Vinculado a: {linkedBillObj.concept}</div>}
+            {!isComplete && <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>Faltan {fmt(remaining)}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <div style={{ color: isComplete ? C.accent : s.color, fontWeight: 900, fontSize: 20 }}>{fmtPct(pct)}</div>
+            <button onClick={() => deleteSaving(s.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+          </div>
+        </div>
+        <Bar value={s.current} max={s.goal} color={isComplete ? C.accent : s.color} h={10} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "12px 0" }}>
+          <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}>
+            <div style={{ color: C.textMuted, fontSize: 10 }}>AHORRADO</div>
+            <div style={{ color: isComplete ? C.accent : s.color, fontWeight: 700, fontSize: 14 }}>{fmt(s.current)}</div>
+          </div>
+          <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}>
+            <div style={{ color: C.textMuted, fontSize: 10 }}>{s.type === "mensual" ? "META MENSUAL" : "~MESES PARA META"}</div>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>
+              {s.type === "mensual" ? fmt(s.goal) : (isComplete ? "✓" : isFinite(monthsTo) ? `${Math.ceil(monthsTo)} meses` : "—")}
+            </div>
+          </div>
+        </div>
+        {!isComplete && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="number" placeholder="Abonar ($)" value={contribution[s.id] || ""} onChange={e => setContribution(c => ({ ...c, [s.id]: e.target.value }))} style={{ ...inputSt, flex: 1 }} />
+            <button onClick={() => contribute(s.id)} style={{ ...btnPrimary(s.color), whiteSpace: "nowrap", fontSize: 12 }}>+ Abonar</button>
+          </div>
+        )}
+        {isComplete && s.type === "mensual" && linkedBillObj && (
+          <div style={{ background: C.accent + "10", border: `1px solid ${C.accent}33`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
+            <div style={{ color: C.accent, fontWeight: 700, fontSize: 13 }}>🎯 ¡Listo para pagar {linkedBillObj.concept}!</div>
+            <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>Tienes {fmt(s.goal)} apartado para este gasto</div>
+          </div>
+        )}
+      </Box>
+    );
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Metas de Ahorro</div>
-        <button onClick={() => setShowForm(!showForm)} style={btnPrimary()}>+ Meta</button>
+        <div>
+          <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Ahorros</div>
+          <div style={{ color: C.textMuted, fontSize: 12 }}>Total ahorrado: {fmt(totalSaved)}</div>
+        </div>
+        <button onClick={() => { setShowForm(!showForm); setForm({ name: "", goal: "", current: "", type: savingsTab, linkedBill: "" }); }} style={btnPrimary()}>+ Nuevo</button>
       </div>
-      <Box style={{ borderColor: C.accent, background: C.accent + "08" }}>
-        <div style={{ color: C.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>TOTAL AHORRADO</div>
-        <div style={{ color: C.text, fontSize: 30, fontWeight: 900, letterSpacing: -1, marginTop: 4 }}>{fmt(totalSaved)}</div>
-        <div style={{ marginTop: 8 }}><Bar value={totalSaved} max={totalGoals} color={C.accent} h={8} /></div>
-        <div style={{ color: C.textMuted, fontSize: 12, marginTop: 6 }}>Meta total: {fmt(totalGoals)} · {fmtPct((totalSaved / (totalGoals || 1)) * 100)} completado</div>
-      </Box>
+
+      {/* Summary cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Box style={{ borderColor: C.accentYellow + "44", background: C.accentYellow + "06" }}>
+          <div style={{ color: C.accentYellow, fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>GASTOS MENSUALES</div>
+          <div style={{ color: C.text, fontSize: 20, fontWeight: 900, marginTop: 4 }}>{fmt(totalMensual)}</div>
+          <Bar value={totalMensual} max={totalMensualGoal || 1} color={C.accentYellow} h={4} />
+          <div style={{ color: C.textMuted, fontSize: 11, marginTop: 4 }}>de {fmt(totalMensualGoal)} · {mensualSavings.length} fondo(s)</div>
+        </Box>
+        <Box style={{ borderColor: C.accentPurple + "44", background: C.accentPurple + "06" }}>
+          <div style={{ color: C.accentPurple, fontSize: 10, fontWeight: 700, letterSpacing: 0.5 }}>LARGO PLAZO</div>
+          <div style={{ color: C.text, fontSize: 20, fontWeight: 900, marginTop: 4 }}>{fmt(totalLargo)}</div>
+          <Bar value={totalLargo} max={totalLargoGoal || 1} color={C.accentPurple} h={4} />
+          <div style={{ color: C.textMuted, fontSize: 11, marginTop: 4 }}>de {fmt(totalLargoGoal)} · {largoSavings.length} meta(s)</div>
+        </Box>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => { setSavingsTab("mensual"); setShowForm(false); }} style={{ flex: 1, padding: "11px 8px", borderRadius: 10, fontFamily: "inherit", cursor: "pointer", fontWeight: 700, fontSize: 13, border: `1.5px solid ${savingsTab === "mensual" ? C.accentYellow : C.border}`, background: savingsTab === "mensual" ? C.accentYellow + "12" : "transparent", color: savingsTab === "mensual" ? C.accentYellow : C.textMuted }}>
+          🗓️ Gastos Mensuales
+        </button>
+        <button onClick={() => { setSavingsTab("largo"); setShowForm(false); }} style={{ flex: 1, padding: "11px 8px", borderRadius: 10, fontFamily: "inherit", cursor: "pointer", fontWeight: 700, fontSize: 13, border: `1.5px solid ${savingsTab === "largo" ? C.accentPurple : C.border}`, background: savingsTab === "largo" ? C.accentPurple + "12" : "transparent", color: savingsTab === "largo" ? C.accentPurple : C.textMuted }}>
+          🎯 Largo Plazo
+        </button>
+      </div>
+
+      {/* Contextual explanation */}
+      {savingsTab === "mensual" && (
+        <Box style={{ background: C.accentYellow + "08", borderColor: C.accentYellow + "33" }}>
+          <div style={{ color: C.accentYellow, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🗓️ ¿Qué son los ahorros para gastos mensuales?</div>
+          <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>Como independientes, cada mes van apartando una porción para cubrir los gastos fijos cuando llegue el momento. Ej: cada semana abonar a "Arriendo" o "Seguro de salud" para tener el dinero listo.</div>
+        </Box>
+      )}
+      {savingsTab === "largo" && (
+        <Box style={{ background: C.accentPurple + "08", borderColor: C.accentPurple + "33" }}>
+          <div style={{ color: C.accentPurple, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🎯 ¿Qué son los ahorros a largo plazo?</div>
+          <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>Metas que toman meses o años: vacaciones, fondo de emergencia, educación, carro, etc. Se construyen poco a poco con abonos periódicos.</div>
+        </Box>
+      )}
+
+      {/* Form */}
       {showForm && (
-        <Box style={{ borderColor: C.accent + "44" }}>
-          <div style={{ color: C.accent, fontWeight: 800, marginBottom: 12 }}>Nueva Meta de Ahorro</div>
+        <Box style={{ borderColor: savingsTab === "mensual" ? C.accentYellow + "44" : C.accentPurple + "44" }}>
+          <div style={{ color: savingsTab === "mensual" ? C.accentYellow : C.accentPurple, fontWeight: 800, fontSize: 15, marginBottom: 12 }}>
+            {savingsTab === "mensual" ? "➕ Nuevo fondo para gasto mensual" : "➕ Nueva meta a largo plazo"}
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div><Label>Nombre de la meta</Label><input placeholder="Ej: Vacaciones, fondo emergencia..." value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputSt} /></div>
-            <div><Label>Objetivo ($)</Label><input type="number" placeholder="0" value={form.goal} onChange={e => setForm(f => ({ ...f, goal: e.target.value }))} style={inputSt} /></div>
-            <div><Label>Ya tengo ahorrado ($)</Label><input type="number" placeholder="0" value={form.current} onChange={e => setForm(f => ({ ...f, current: e.target.value }))} style={inputSt} /></div>
-            <div style={{ display: "flex", gap: 8 }}><button onClick={addSaving} style={btnPrimary()}>Guardar</button><button onClick={() => setShowForm(false)} style={btnGhost}>Cancelar</button></div>
+            <div><Label>Nombre</Label>
+              <input placeholder={savingsTab === "mensual" ? "Ej: Arriendo, Seguro de salud..." : "Ej: Vacaciones, Fondo emergencia..."} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputSt} />
+            </div>
+            <div><Label>{savingsTab === "mensual" ? "Monto objetivo (valor del gasto)" : "Meta total ($)"}</Label>
+              <input type="number" placeholder="0" value={form.goal} onChange={e => setForm(f => ({ ...f, goal: e.target.value }))} style={inputSt} />
+            </div>
+            <div><Label>Ya tengo ahorrado ($)</Label>
+              <input type="number" placeholder="0" value={form.current} onChange={e => setForm(f => ({ ...f, current: e.target.value }))} style={inputSt} />
+            </div>
+            {savingsTab === "mensual" && (state.fixedBills || []).length > 0 && (
+              <div><Label>Vincular a un pago fijo (opcional)</Label>
+                <select value={form.linkedBill} onChange={e => setForm(f => ({ ...f, linkedBill: e.target.value }))} style={inputSt}>
+                  <option value="">Sin vincular</option>
+                  {(state.fixedBills || []).map(b => <option key={b.id} value={b.id}>{b.concept} — {fmt(b.amount)}</option>)}
+                </select>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={addSaving} style={btnPrimary(savingsTab === "mensual" ? C.accentYellow : C.accentPurple, "#fff")}>Guardar</button>
+              <button onClick={() => setShowForm(false)} style={btnGhost}>Cancelar</button>
+            </div>
           </div>
         </Box>
       )}
-      {state.savings.map(s => { const pct = (s.current / s.goal) * 100; const remaining = s.goal - s.current; const monthsTo = remaining / (monthlyIncome * 0.1 || 1); return (
-        <Box key={s.id}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-            <div><div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{s.name}</div><div style={{ color: C.textMuted, fontSize: 12 }}>Faltan {fmt(remaining)}</div></div>
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><div style={{ color: s.color, fontWeight: 900, fontSize: 20 }}>{fmtPct(pct)}</div><button onClick={() => deleteSaving(s.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button></div>
-          </div>
-          <Bar value={s.current} max={s.goal} color={s.color} h={10} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "12px 0" }}>
-            <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>AHORRADO</div><div style={{ color: s.color, fontWeight: 700, fontSize: 14 }}>{fmt(s.current)}</div></div>
-            <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>~MESES RESTANTES</div><div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{isFinite(monthsTo) ? Math.ceil(monthsTo) : "—"}</div></div>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="number" placeholder="Abono manual ($)" value={contribution[s.id] || ""} onChange={e => setContribution(c => ({ ...c, [s.id]: e.target.value }))} style={{ ...inputSt, flex: 1 }} />
-            <button onClick={() => contribute(s.id)} style={{ ...btnPrimary(s.color), whiteSpace: "nowrap", fontSize: 12 }}>+ Abonar</button>
-          </div>
-        </Box>
-      ); })}
+
+      {/* Savings list */}
+      {savingsTab === "mensual" && (
+        <>
+          {mensualSavings.length === 0 && !showForm && (
+            <Box style={{ textAlign: "center", padding: 32 }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🗓️</div>
+              <div style={{ color: C.textMuted, fontSize: 14 }}>Sin fondos mensuales.<br />Crea uno para empezar a apartar para tus gastos fijos.</div>
+            </Box>
+          )}
+          {mensualSavings.map(s => <SavingCard key={s.id} s={s} />)}
+        </>
+      )}
+
+      {savingsTab === "largo" && (
+        <>
+          {largoSavings.length === 0 && !showForm && (
+            <Box style={{ textAlign: "center", padding: 32 }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🎯</div>
+              <div style={{ color: C.textMuted, fontSize: 14 }}>Sin metas a largo plazo.<br />Agrega tu primera meta de ahorro.</div>
+            </Box>
+          )}
+          {largoSavings.map(s => <SavingCard key={s.id} s={s} />)}
+        </>
+      )}
     </div>
   );
 };
