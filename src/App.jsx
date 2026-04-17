@@ -77,7 +77,11 @@ const INIT = {
   fixedBills: [],
 };
 
-// ── CALENDAR HELPERS ──────────────────────────────────────────────────────────
+// ── CORREOS AUTORIZADOS ───────────────────────────────────────────────────────
+const ALLOWED_EMAILS = [
+  "pabloarboleda.redes@gmail.com",
+  "lauratamayo1911@gmail.com",
+];
 function getCurrentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -189,7 +193,20 @@ const AmortTable = ({ rows, title, color = C.accent }) => {
   );
 };
 
-// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+// ── ACCESS DENIED SCREEN ──────────────────────────────────────────────────────
+const AccessDenied = ({ user, onLogout }) => (
+  <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
+    <div style={{ fontSize: 22, fontWeight: 900, color: C.text, marginBottom: 8 }}>Acceso no autorizado</div>
+    <div style={{ color: C.textMuted, fontSize: 14, textAlign: "center", lineHeight: 1.6, marginBottom: 32, maxWidth: 300 }}>
+      El correo <strong style={{ color: C.accentRed }}>{user.email}</strong> no tiene permiso para acceder a FinHogar.<br /><br />
+      Esta app es de uso privado para Pablo y Laura.
+    </div>
+    <button onClick={onLogout} style={{ ...btnPrimary(C.accentRed), padding: "12px 28px", fontSize: 14 }}>
+      Cerrar sesión
+    </button>
+  </div>
+);
 const LoginScreen = ({ onLogin, loading }) => (
   <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
     <div style={{ width: 60, height: 60, borderRadius: 16, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 20 }}>🏡</div>
@@ -931,6 +948,11 @@ export default function App() {
   );
 
   if (!user) return <LoginScreen onLogin={handleLogin} loading={loginLoading} />;
+
+  // ── Verificar correo autorizado ──────────────────────────────────────────────
+  if (!ALLOWED_EMAILS.includes(user.email)) {
+    return <AccessDenied user={user} onLogout={handleLogout} />;
+  }
 
   const nav = [
     { id: "dashboard", icon: "🏠", label: "Inicio" },
