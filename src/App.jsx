@@ -52,7 +52,7 @@ function buildPurchaseAmortization(amount, installments, monthlyRate) {
 }
 
 // ── INITIAL STATE ─────────────────────────────────────────────────────────────
-const CATS = ["Alimentación", "Transporte", "Servicios", "Entretenimiento", "Salud", "Educación", "Ropa", "Hogar", "Otros"];
+const DEFAULT_CATS = ["Alimentación", "Transporte", "Servicios", "Entretenimiento", "Salud", "Educación", "Ropa", "Hogar", "Otros"];
 const PAY_METHODS = ["Efectivo", "Débito", "Tarjeta de crédito"];
 const BILL_COLORS = [C.accentBlue, C.accentPurple, C.accentPink, C.accentYellow, C.accentOrange, C.accent, C.accentRed];
 const PAY_TYPES = ["Transferencia", "Débito automático", "Efectivo", "Débito", "Tarjeta de crédito", "PSE", "Cheque"];
@@ -60,8 +60,9 @@ const PAY_TYPES = ["Transferencia", "Débito automático", "Efectivo", "Débito"
 const INIT = {
   members: [
     { id: 1, name: "Pablo", color: C.accentBlue, emoji: "👨" },
-    { id: 2, name: "Esposa", color: C.accentPink, emoji: "👩" },
+    { id: 2, name: "Mi esposa", color: C.accentPink, emoji: "👩" },
   ],
+  categories: [...DEFAULT_CATS],
   incomes: [], expenses: [], cards: [], loans: [],
   budgets: [
     { id: 1, category: "Alimentación", limit: 900000, spent: 0 },
@@ -102,7 +103,7 @@ function fmtMonth(ym) {
 }
 
 // ── SHARED UI ─────────────────────────────────────────────────────────────────
-const inputSt = { width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit" };
+const inputSt = { width: "100%", padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit", maxWidth: "100%", display: "block" };
 const btnPrimary = (bg = C.accent, fg = "#fff") => ({ background: bg, color: fg, border: "none", borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "inherit" });
 const btnGhost = { background: "transparent", color: C.textMuted, border: `1.5px solid ${C.border}`, borderRadius: 8, padding: "10px 18px", fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit" };
 
@@ -290,7 +291,7 @@ const Ingresos = ({ state, setState }) => {
             <div><Label>Descripción</Label><input placeholder="Ej: Honorarios, consultoría..." value={form.desc} onChange={e => setForm(f => ({ ...f, desc: e.target.value }))} style={inputSt} /></div>
             <div><Label>Valor ($)</Label><input type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} style={inputSt} /></div>
             <div><Label>Tipo</Label><select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={inputSt}><option value="fijo">Fijo (recurrente)</option><option value="variable">Variable (esporádico)</option></select></div>
-            <div><Label>Fecha</Label><input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={inputSt} /></div>
+            <div style={{ overflow: "hidden" }}><Label>Fecha</Label><input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputSt, fontSize: 13 }} /></div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={addIncome} style={btnPrimary()}>Guardar</button><button onClick={() => setShowForm(false)} style={btnGhost}>Cancelar</button></div>
           </div>
         </Box>
@@ -311,12 +312,16 @@ const Ingresos = ({ state, setState }) => {
 
 // ── GASTOS ────────────────────────────────────────────────────────────────────
 const Gastos = ({ state, setState }) => {
+  const CATS = state.categories || DEFAULT_CATS;
   const [showExpForm, setShowExpForm] = useState(false);
   const [showBudgetForm, setShowBudgetForm] = useState(false);
   const [expForm, setExpForm] = useState({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, date: getToday() });
-  const [budgetForm, setBudgetForm] = useState({ category: CATS[0], limit: "" });
+  const [budgetForm, setBudgetForm] = useState({ category: "", customCategory: "", limit: "", useCustom: false });
+  const [editBudget, setEditBudget] = useState(null);
+  const [editBudgetForm, setEditBudgetForm] = useState({ category: "", limit: "" });
   const totalIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
   const totalSpent = state.budgets.reduce((s, b) => s + b.spent, 0);
+
   const addExpense = () => {
     if (!expForm.desc || !expForm.amount) return;
     const amt = +expForm.amount;
@@ -330,10 +335,30 @@ const Gastos = ({ state, setState }) => {
     setExpForm({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, date: getToday() });
     setShowExpForm(false);
   };
-  const addBudget = () => { if (!budgetForm.limit) return; setState(s => ({ ...s, budgets: [...s.budgets, { id: Date.now(), ...budgetForm, limit: +budgetForm.limit, spent: 0 }] })); setBudgetForm({ category: CATS[0], limit: "" }); setShowBudgetForm(false); };
+
+  const addBudget = () => {
+    const cat = budgetForm.useCustom ? budgetForm.customCategory.trim() : budgetForm.category;
+    if (!cat || !budgetForm.limit) return;
+    // Add new category to state if custom
+    setState(s => {
+      const newCats = budgetForm.useCustom && !s.categories?.includes(cat) ? [...(s.categories || DEFAULT_CATS), cat] : s.categories || DEFAULT_CATS;
+      return { ...s, categories: newCats, budgets: [...s.budgets, { id: Date.now(), category: cat, limit: +budgetForm.limit, spent: 0 }] };
+    });
+    setBudgetForm({ category: "", customCategory: "", limit: "", useCustom: false });
+    setShowBudgetForm(false);
+  };
+
+  const startEditBudget = (b) => { setEditBudget(b.id); setEditBudgetForm({ category: b.category, limit: String(b.limit) }); };
+  const saveEditBudget = () => {
+    if (!editBudgetForm.limit) return;
+    setState(s => ({ ...s, budgets: s.budgets.map(b => b.id === editBudget ? { ...b, category: editBudgetForm.category, limit: +editBudgetForm.limit } : b) }));
+    setEditBudget(null);
+  };
+
   const deleteBudget = (id) => setState(s => ({ ...s, budgets: s.budgets.filter(b => b.id !== id) }));
   const deleteExpense = (expId) => setState(s => ({ ...s, expenses: s.expenses.filter(e => e.id !== expId) }));
   const pmIcon = { "Efectivo": "💵", "Débito": "💳", "Tarjeta de crédito": "🔴" };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -343,16 +368,28 @@ const Gastos = ({ state, setState }) => {
           <button onClick={() => { setShowExpForm(!showExpForm); setShowBudgetForm(false); }} style={{ ...btnPrimary(), fontSize: 12, padding: "8px 12px" }}>+ Gasto</button>
         </div>
       </div>
+
       {showBudgetForm && (
         <Box style={{ borderColor: C.accentBlue + "44" }}>
           <div style={{ color: C.accentBlue, fontWeight: 800, marginBottom: 12 }}>Nuevo Presupuesto</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div><Label>Categoría</Label><select value={budgetForm.category} onChange={e => setBudgetForm(f => ({ ...f, category: e.target.value }))} style={inputSt}>{CATS.map(c => <option key={c}>{c}</option>)}</select></div>
+            <div>
+              <Label>Nombre de la categoría</Label>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <button onClick={() => setBudgetForm(f => ({ ...f, useCustom: false }))} style={{ ...budgetForm.useCustom ? btnGhost : btnPrimary(C.accentBlue), fontSize: 12, padding: "7px 12px", flex: 1 }}>Existente</button>
+                <button onClick={() => setBudgetForm(f => ({ ...f, useCustom: true }))} style={{ ...budgetForm.useCustom ? btnPrimary(C.accentBlue) : btnGhost, fontSize: 12, padding: "7px 12px", flex: 1 }}>Nueva categoría</button>
+              </div>
+              {budgetForm.useCustom
+                ? <input placeholder="Ej: Mascotas, Gimnasio, Suscripciones..." value={budgetForm.customCategory} onChange={e => setBudgetForm(f => ({ ...f, customCategory: e.target.value }))} style={inputSt} />
+                : <select value={budgetForm.category} onChange={e => setBudgetForm(f => ({ ...f, category: e.target.value }))} style={inputSt}><option value="">Selecciona...</option>{CATS.map(c => <option key={c}>{c}</option>)}</select>
+              }
+            </div>
             <div><Label>Límite mensual ($)</Label><input type="number" placeholder="0" value={budgetForm.limit} onChange={e => setBudgetForm(f => ({ ...f, limit: e.target.value }))} style={inputSt} /></div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={addBudget} style={btnPrimary(C.accentBlue)}>Guardar</button><button onClick={() => setShowBudgetForm(false)} style={btnGhost}>Cancelar</button></div>
           </div>
         </Box>
       )}
+
       {showExpForm && (
         <Box style={{ borderColor: C.accent + "44" }}>
           <div style={{ color: C.accent, fontWeight: 800, marginBottom: 12 }}>Registrar Gasto</div>
@@ -367,21 +404,41 @@ const Gastos = ({ state, setState }) => {
               <div><Label>Cuotas</Label><select value={expForm.installments} onChange={e => setExpForm(f => ({ ...f, installments: +e.target.value }))} style={inputSt}>{[1,2,3,6,9,12,18,24,36].map(n => <option key={n} value={n}>{n === 1 ? "1 cuota (contado)" : `${n} cuotas`}</option>)}</select></div>
               {expForm.amount && expForm.cardId && expForm.installments > 1 && (() => { const card = state.cards.find(c => c.id === +expForm.cardId); const rows = buildPurchaseAmortization(+expForm.amount, expForm.installments, card?.rate || 2.0); return (<Box style={{ background: C.surfaceAlt, border: "none" }}><div style={{ color: C.accentOrange, fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Vista previa amortización</div><div style={{ overflowX: "auto" }}><table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}><thead><tr>{["#","Cuota","Interés","Capital","Saldo"].map(h => <th key={h} style={{ color: C.textMuted, padding: "5px 4px", textAlign: "right" }}>{h}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={i}><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{r.cuota}</td><td style={{ color: C.text, padding: "4px", textAlign: "right", fontWeight: 600 }}>{fmtShort(r.pmt)}</td><td style={{ color: C.accentRed, padding: "4px", textAlign: "right" }}>{fmtShort(r.interest)}</td><td style={{ color: C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.capital)}</td><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{fmtShort(r.balance)}</td></tr>)}</tbody></table></div></Box>); })()}
             </>)}
-            <div><Label>Fecha</Label><input type="date" value={expForm.date} onChange={e => setExpForm(f => ({ ...f, date: e.target.value }))} style={inputSt} /></div>
+            <div style={{ overflow: "hidden" }}><Label>Fecha</Label><input type="date" value={expForm.date} onChange={e => setExpForm(f => ({ ...f, date: e.target.value }))} style={{ ...inputSt, fontSize: 13 }} /></div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={addExpense} style={btnPrimary()}>Registrar</button><button onClick={() => setShowExpForm(false)} style={btnGhost}>Cancelar</button></div>
           </div>
         </Box>
       )}
-      {state.budgets.map(b => { const pct = (b.spent / b.limit) * 100; const [status, statusColor] = pct > 100 ? ["Excedido", C.accentRed] : pct > 85 ? ["Crítico", C.accentYellow] : pct > 60 ? ["Moderado", C.accentOrange] : ["Bien", C.accent]; return (
-        <Box key={b.id}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-            <div><div style={{ color: C.text, fontWeight: 700 }}>{b.category}</div><div style={{ color: C.textMuted, fontSize: 12 }}>{fmt(b.spent)} / {fmt(b.limit)}</div></div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}><Tag color={statusColor}>{status}</Tag><button onClick={() => deleteBudget(b.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button></div>
-          </div>
-          <Bar value={b.spent} max={b.limit} h={8} />
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}><span style={{ color: C.textMuted, fontSize: 11 }}>Disponible: {fmt(b.limit - b.spent)}</span><span style={{ color: statusColor, fontSize: 11, fontWeight: 700 }}>{fmtPct(pct)}</span></div>
-        </Box>
-      ); })}
+
+      {state.budgets.map(b => {
+        const pct = (b.spent / b.limit) * 100;
+        const [status, statusColor] = pct > 100 ? ["Excedido", C.accentRed] : pct > 85 ? ["Crítico", C.accentYellow] : pct > 60 ? ["Moderado", C.accentOrange] : ["Bien", C.accent];
+        return (
+          <Box key={b.id}>
+            {editBudget === b.id ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div><Label>Nombre categoría</Label><input value={editBudgetForm.category} onChange={e => setEditBudgetForm(f => ({ ...f, category: e.target.value }))} style={inputSt} /></div>
+                <div><Label>Límite ($)</Label><input type="number" value={editBudgetForm.limit} onChange={e => setEditBudgetForm(f => ({ ...f, limit: e.target.value }))} style={inputSt} /></div>
+                <div style={{ display: "flex", gap: 8 }}><button onClick={saveEditBudget} style={btnPrimary()}>Guardar</button><button onClick={() => setEditBudget(null)} style={btnGhost}>Cancelar</button></div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <div><div style={{ color: C.text, fontWeight: 700 }}>{b.category}</div><div style={{ color: C.textMuted, fontSize: 12 }}>{fmt(b.spent)} / {fmt(b.limit)}</div></div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <Tag color={statusColor}>{status}</Tag>
+                    <button onClick={() => startEditBudget(b)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 15, padding: "2px 4px" }}>✏️</button>
+                    <button onClick={() => deleteBudget(b.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+                  </div>
+                </div>
+                <Bar value={b.spent} max={b.limit} h={8} />
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}><span style={{ color: C.textMuted, fontSize: 11 }}>Disponible: {fmt(b.limit - b.spent)}</span><span style={{ color: statusColor, fontSize: 11, fontWeight: 700 }}>{fmtPct(pct)}</span></div>
+              </>
+            )}
+          </Box>
+        );
+      })}
+
       <Box>
         <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Últimos Gastos</div>
         {state.expenses.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin gastos registrados</div>}
@@ -681,6 +738,105 @@ const Asesor = ({ state }) => {
 };
 
 // ── ROOT APP WITH FIREBASE ────────────────────────────────────────────────────
+// ── CONFIGURACION ─────────────────────────────────────────────────────────────
+const Configuracion = ({ state, setState }) => {
+  const [memberForms, setMemberForms] = useState(state.members.map(m => ({ ...m })));
+  const [showCardForm, setShowCardForm] = useState(false);
+  const [cardForm, setCardForm] = useState({ name: "", holder: 1, limit: "", rate: "", dueDate: "" });
+  const EMOJIS = ["👨","👩","👦","👧","🧑","👴","👵","🧔","👱","🧓"];
+  const MEMBER_COLORS = [C.accentBlue, C.accentPink, C.accentPurple, C.accentOrange, C.accentYellow, C.accent];
+
+  const saveMember = (id) => {
+    const mf = memberForms.find(m => m.id === id);
+    if (!mf?.name.trim()) return;
+    setState(s => ({ ...s, members: s.members.map(m => m.id === id ? { ...m, name: mf.name, emoji: mf.emoji, color: mf.color } : m) }));
+  };
+
+  const addCard = () => {
+    if (!cardForm.name || !cardForm.limit) return;
+    setState(s => ({ ...s, cards: [...s.cards, { id: Date.now(), name: cardForm.name, holder: +cardForm.holder, limit: +cardForm.limit, rate: +cardForm.rate || 2.0, dueDate: cardForm.dueDate, purchases: [] }] }));
+    setCardForm({ name: "", holder: 1, limit: "", rate: "", dueDate: "" });
+    setShowCardForm(false);
+  };
+
+  const deleteCard = (id) => setState(s => ({ ...s, cards: s.cards.filter(c => c.id !== id) }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div><div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Configuración</div><div style={{ color: C.textMuted, fontSize: 12 }}>Personaliza los miembros y tarjetas</div></div>
+
+      {/* Members */}
+      <Box>
+        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 14 }}>👥 Miembros del Hogar</div>
+        {memberForms.map((mf, idx) => (
+          <div key={mf.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: idx < memberForms.length - 1 ? `1px solid ${C.border}` : "none" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: mf.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{mf.emoji}</div>
+              <div style={{ color: mf.color, fontWeight: 800, fontSize: 15 }}>{state.members.find(m => m.id === mf.id)?.name}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div><Label>Nombre</Label><input value={mf.name} onChange={e => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, name: e.target.value } : f))} style={inputSt} /></div>
+              <div>
+                <Label>Emoji</Label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {EMOJIS.map(em => <button key={em} onClick={() => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, emoji: em } : f))} style={{ width: 36, height: 36, borderRadius: 8, border: `2px solid ${mf.emoji === em ? mf.color : C.border}`, background: mf.emoji === em ? mf.color + "15" : "transparent", cursor: "pointer", fontSize: 18 }}>{em}</button>)}
+                </div>
+              </div>
+              <div>
+                <Label>Color</Label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {MEMBER_COLORS.map(col => <button key={col} onClick={() => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, color: col } : f))} style={{ width: 28, height: 28, borderRadius: "50%", background: col, border: mf.color === col ? `3px solid ${C.text}` : "3px solid transparent", cursor: "pointer" }} />)}
+                </div>
+              </div>
+              <button onClick={() => saveMember(mf.id)} style={{ ...btnPrimary(mf.color), width: "100%", marginTop: 4 }}>Guardar cambios</button>
+            </div>
+          </div>
+        ))}
+      </Box>
+
+      {/* Cards */}
+      <Box>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ color: C.text, fontWeight: 700, fontSize: 15 }}>💳 Tarjetas de Crédito</div>
+          <button onClick={() => setShowCardForm(!showCardForm)} style={{ ...btnPrimary(C.accentOrange), fontSize: 12, padding: "7px 12px" }}>+ Tarjeta</button>
+        </div>
+
+        {showCardForm && (
+          <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ color: C.accentOrange, fontWeight: 700, marginBottom: 10 }}>Nueva Tarjeta</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div><Label>Nombre de la tarjeta</Label><input placeholder="Ej: Visa Bancolombia" value={cardForm.name} onChange={e => setCardForm(f => ({ ...f, name: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Titular</Label><select value={cardForm.holder} onChange={e => setCardForm(f => ({ ...f, holder: e.target.value }))} style={inputSt}>{state.members.map(m => <option key={m.id} value={m.id}>{m.emoji} {m.name}</option>)}</select></div>
+              <div><Label>Cupo total ($)</Label><input type="number" placeholder="0" value={cardForm.limit} onChange={e => setCardForm(f => ({ ...f, limit: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Tasa mensual (%)</Label><input type="number" placeholder="2.0" value={cardForm.rate} onChange={e => setCardForm(f => ({ ...f, rate: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Día de cierre</Label><input type="number" min="1" max="31" placeholder="25" value={cardForm.dueDate} onChange={e => setCardForm(f => ({ ...f, dueDate: e.target.value }))} style={inputSt} /></div>
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}><button onClick={addCard} style={btnPrimary(C.accentOrange)}>Guardar</button><button onClick={() => setShowCardForm(false)} style={btnGhost}>Cancelar</button></div>
+            </div>
+          </div>
+        )}
+
+        {state.cards.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin tarjetas registradas. Agrega tu primera tarjeta.</div>}
+        {state.cards.map(c => {
+          const holder = state.members.find(m => m.id === c.holder);
+          const activePurchases = c.purchases.filter(p => p.paidInstallments < p.installments);
+          return (
+            <div key={c.id} style={{ padding: "12px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{c.name}</div>
+                  <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>{holder?.emoji} {holder?.name} · Cupo: {fmt(c.limit)} · Tasa: {c.rate}% · Cierre día {c.dueDate}</div>
+                  <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{activePurchases.length} compras activas en cuotas</div>
+                </div>
+                <button onClick={() => deleteCard(c.id)} style={{ background: C.accentRed + "12", border: `1px solid ${C.accentRed}33`, color: C.accentRed, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Eliminar</button>
+              </div>
+            </div>
+          );
+        })}
+      </Box>
+    </div>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -752,9 +908,10 @@ export default function App() {
     { id: "ahorros", icon: "🐷", label: "Ahorros" },
     { id: "calendario", icon: "📅", label: "Pagos" },
     { id: "asesor", icon: "💡", label: "Asesor" },
+    { id: "config", icon: "⚙️", label: "Config" },
   ];
 
-  const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, calendario: Calendario, asesor: Asesor };
+  const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, calendario: Calendario, asesor: Asesor, config: Configuracion };
   const View = views[tab];
 
   return (
@@ -777,13 +934,20 @@ export default function App() {
         </div>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, padding: "18px 14px 110px", overflowY: "auto" }}>
+      {/* Content — paddingBottom accounts for nav bar height + safe area */}
+      <div style={{ flex: 1, padding: "18px 14px 0", paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))", overflowY: "auto" }}>
         <View state={state} setState={setState} />
       </div>
 
-      {/* Bottom Nav */}
-      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 520, background: C.surface, borderTop: `1.5px solid ${C.border}`, padding: "6px 2px 8px", display: "flex", justifyContent: "space-around", zIndex: 20, boxShadow: "0 -1px 0 rgba(0,0,0,0.04)" }}>
+      {/* Bottom Nav — fixed at very bottom, respects iPhone home indicator */}
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: "100%", maxWidth: 520, background: C.surface,
+        borderTop: `1.5px solid ${C.border}`,
+        paddingTop: 6, paddingBottom: `calc(8px + env(safe-area-inset-bottom, 0px))`,
+        display: "flex", justifyContent: "space-around", zIndex: 100,
+        boxShadow: "0 -2px 12px rgba(0,0,0,0.06)",
+      }}>
         {nav.map(n => <NavBtn key={n.id} {...n} active={tab === n.id} onClick={() => setTab(n.id)} />)}
       </div>
     </div>
