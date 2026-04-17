@@ -789,8 +789,11 @@ const Asesor = ({ state }) => {
 // ── ROOT APP WITH FIREBASE ────────────────────────────────────────────────────
 // ── CONFIGURACION ─────────────────────────────────────────────────────────────
 const Configuracion = ({ state, setState }) => {
+  const [configTab, setConfigTab] = useState("usuarios");
   const [memberForms, setMemberForms] = useState(state.members.map(m => ({ ...m })));
+  const [savedMsg, setSavedMsg] = useState(null);
   const [showCardForm, setShowCardForm] = useState(false);
+  const [editCardId, setEditCardId] = useState(null);
   const [cardForm, setCardForm] = useState({ name: "", holder: 1, limit: "", rate: "", dueDate: "" });
   const EMOJIS = ["👨","👩","👦","👧","🧑","👴","👵","🧔","👱","🧓"];
   const MEMBER_COLORS = [C.accentBlue, C.accentPink, C.accentPurple, C.accentOrange, C.accentYellow, C.accent];
@@ -799,89 +802,190 @@ const Configuracion = ({ state, setState }) => {
     const mf = memberForms.find(m => m.id === id);
     if (!mf?.name.trim()) return;
     setState(s => ({ ...s, members: s.members.map(m => m.id === id ? { ...m, name: mf.name, emoji: mf.emoji, color: mf.color } : m) }));
+    setSavedMsg(id);
+    setTimeout(() => setSavedMsg(null), 2000);
   };
 
-  const addCard = () => {
+  const startEditCard = (c) => {
+    setCardForm({ name: c.name, holder: c.holder, limit: String(c.limit), rate: String(c.rate), dueDate: String(c.dueDate) });
+    setEditCardId(c.id);
+    setShowCardForm(true);
+  };
+
+  const saveCard = () => {
     if (!cardForm.name || !cardForm.limit) return;
-    setState(s => ({ ...s, cards: [...s.cards, { id: Date.now(), name: cardForm.name, holder: +cardForm.holder, limit: +cardForm.limit, rate: +cardForm.rate || 2.0, dueDate: cardForm.dueDate, purchases: [] }] }));
+    if (editCardId) {
+      setState(s => ({ ...s, cards: s.cards.map(c => c.id === editCardId ? { ...c, name: cardForm.name, holder: +cardForm.holder, limit: +cardForm.limit, rate: +cardForm.rate || 2.0, dueDate: cardForm.dueDate } : c) }));
+    } else {
+      setState(s => ({ ...s, cards: [...s.cards, { id: Date.now(), name: cardForm.name, holder: +cardForm.holder, limit: +cardForm.limit, rate: +cardForm.rate || 2.0, dueDate: cardForm.dueDate, purchases: [] }] }));
+    }
     setCardForm({ name: "", holder: 1, limit: "", rate: "", dueDate: "" });
     setShowCardForm(false);
+    setEditCardId(null);
   };
 
   const deleteCard = (id) => setState(s => ({ ...s, cards: s.cards.filter(c => c.id !== id) }));
 
+  const tabBtn = (id, label, icon) => (
+    <button onClick={() => setConfigTab(id)} style={{
+      flex: 1, padding: "11px 8px", borderRadius: 10, fontFamily: "inherit", cursor: "pointer", fontWeight: 700, fontSize: 13,
+      border: `1.5px solid ${configTab === id ? C.accent : C.border}`,
+      background: configTab === id ? C.accent + "10" : "transparent",
+      color: configTab === id ? C.accent : C.textMuted,
+    }}>{icon} {label}</button>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div><div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Configuración</div><div style={{ color: C.textMuted, fontSize: 12 }}>Personaliza los miembros y tarjetas</div></div>
+      <div>
+        <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Configuración</div>
+        <div style={{ color: C.textMuted, fontSize: 12 }}>Ajustes del hogar</div>
+      </div>
 
-      {/* Members */}
-      <Box>
-        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 14 }}>👥 Miembros del Hogar</div>
-        {memberForms.map((mf, idx) => (
-          <div key={mf.id} style={{ marginBottom: 16, paddingBottom: 16, borderBottom: idx < memberForms.length - 1 ? `1px solid ${C.border}` : "none" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: mf.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{mf.emoji}</div>
-              <div style={{ color: mf.color, fontWeight: 800, fontSize: 15 }}>{state.members.find(m => m.id === mf.id)?.name}</div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div><Label>Nombre</Label><input value={mf.name} onChange={e => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, name: e.target.value } : f))} style={inputSt} /></div>
-              <div>
-                <Label>Emoji</Label>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {EMOJIS.map(em => <button key={em} onClick={() => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, emoji: em } : f))} style={{ width: 36, height: 36, borderRadius: 8, border: `2px solid ${mf.emoji === em ? mf.color : C.border}`, background: mf.emoji === em ? mf.color + "15" : "transparent", cursor: "pointer", fontSize: 18 }}>{em}</button>)}
-                </div>
-              </div>
-              <div>
-                <Label>Color</Label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {MEMBER_COLORS.map(col => <button key={col} onClick={() => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, color: col } : f))} style={{ width: 28, height: 28, borderRadius: "50%", background: col, border: mf.color === col ? `3px solid ${C.text}` : "3px solid transparent", cursor: "pointer" }} />)}
-                </div>
-              </div>
-              <button onClick={() => saveMember(mf.id)} style={{ ...btnPrimary(mf.color), width: "100%", marginTop: 4 }}>Guardar cambios</button>
-            </div>
-          </div>
-        ))}
-      </Box>
+      {/* Tab selector */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {tabBtn("usuarios", "Usuarios", "👥")}
+        {tabBtn("tarjetas", "Tarjetas", "💳")}
+      </div>
 
-      {/* Cards */}
-      <Box>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div style={{ color: C.text, fontWeight: 700, fontSize: 15 }}>💳 Tarjetas de Crédito</div>
-          <button onClick={() => setShowCardForm(!showCardForm)} style={{ ...btnPrimary(C.accentOrange), fontSize: 12, padding: "7px 12px" }}>+ Tarjeta</button>
-        </div>
-
-        {showCardForm && (
-          <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 14 }}>
-            <div style={{ color: C.accentOrange, fontWeight: 700, marginBottom: 10 }}>Nueva Tarjeta</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div><Label>Nombre de la tarjeta</Label><input placeholder="Ej: Visa Bancolombia" value={cardForm.name} onChange={e => setCardForm(f => ({ ...f, name: e.target.value }))} style={inputSt} /></div>
-              <div><Label>Titular</Label><select value={cardForm.holder} onChange={e => setCardForm(f => ({ ...f, holder: e.target.value }))} style={inputSt}>{state.members.map(m => <option key={m.id} value={m.id}>{m.emoji} {m.name}</option>)}</select></div>
-              <div><Label>Cupo total ($)</Label><input type="number" placeholder="0" value={cardForm.limit} onChange={e => setCardForm(f => ({ ...f, limit: e.target.value }))} style={inputSt} /></div>
-              <div><Label>Tasa mensual (%)</Label><input type="number" placeholder="2.0" value={cardForm.rate} onChange={e => setCardForm(f => ({ ...f, rate: e.target.value }))} style={inputSt} /></div>
-              <div><Label>Día de cierre</Label><input type="number" min="1" max="31" placeholder="25" value={cardForm.dueDate} onChange={e => setCardForm(f => ({ ...f, dueDate: e.target.value }))} style={inputSt} /></div>
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}><button onClick={addCard} style={btnPrimary(C.accentOrange)}>Guardar</button><button onClick={() => setShowCardForm(false)} style={btnGhost}>Cancelar</button></div>
-            </div>
-          </div>
-        )}
-
-        {state.cards.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin tarjetas registradas. Agrega tu primera tarjeta.</div>}
-        {state.cards.map(c => {
-          const holder = state.members.find(m => m.id === c.holder);
-          const activePurchases = c.purchases.filter(p => p.paidInstallments < p.installments);
-          return (
-            <div key={c.id} style={{ padding: "12px 0", borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+      {/* ── PESTAÑA USUARIOS ── */}
+      {configTab === "usuarios" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {memberForms.map((mf, idx) => (
+            <Box key={mf.id} style={{ borderColor: mf.color + "44" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: mf.color + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{mf.emoji}</div>
                 <div>
-                  <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{c.name}</div>
-                  <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>{holder?.emoji} {holder?.name} · Cupo: {fmt(c.limit)} · Tasa: {c.rate}% · Cierre día {c.dueDate}</div>
-                  <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{activePurchases.length} compras activas en cuotas</div>
+                  <div style={{ color: mf.color, fontWeight: 800, fontSize: 16 }}>{state.members.find(m => m.id === mf.id)?.name}</div>
+                  <div style={{ color: C.textMuted, fontSize: 11 }}>Miembro {idx + 1} del hogar</div>
                 </div>
-                <button onClick={() => deleteCard(c.id)} style={{ background: C.accentRed + "12", border: `1px solid ${C.accentRed}33`, color: C.accentRed, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Eliminar</button>
               </div>
-            </div>
-          );
-        })}
-      </Box>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div><Label>Nombre</Label>
+                  <input value={mf.name} onChange={e => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, name: e.target.value } : f))} style={inputSt} />
+                </div>
+                <div><Label>Emoji</Label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {EMOJIS.map(em => (
+                      <button key={em} onClick={() => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, emoji: em } : f))}
+                        style={{ width: 38, height: 38, borderRadius: 8, border: `2px solid ${mf.emoji === em ? mf.color : C.border}`, background: mf.emoji === em ? mf.color + "15" : "transparent", cursor: "pointer", fontSize: 20 }}>{em}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div><Label>Color</Label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {MEMBER_COLORS.map(col => (
+                      <button key={col} onClick={() => setMemberForms(fs => fs.map(f => f.id === mf.id ? { ...f, color: col } : f))}
+                        style={{ width: 30, height: 30, borderRadius: "50%", background: col, border: mf.color === col ? `3px solid ${C.text}` : "3px solid transparent", cursor: "pointer" }} />
+                    ))}
+                  </div>
+                </div>
+                <button onClick={() => saveMember(mf.id)} style={{ ...btnPrimary(mf.color), width: "100%", marginTop: 4 }}>
+                  {savedMsg === mf.id ? "✓ Guardado" : "Guardar cambios"}
+                </button>
+              </div>
+            </Box>
+          ))}
+        </div>
+      )}
+
+      {/* ── PESTAÑA TARJETAS ── */}
+      {configTab === "tarjetas" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <button onClick={() => { setShowCardForm(true); setEditCardId(null); setCardForm({ name: "", holder: 1, limit: "", rate: "", dueDate: "" }); }}
+            style={{ ...btnPrimary(C.accentOrange), width: "100%" }}>
+            + Nueva Tarjeta de Crédito
+          </button>
+
+          {showCardForm && (
+            <Box style={{ borderColor: C.accentOrange + "44" }}>
+              <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 15, marginBottom: 12 }}>
+                {editCardId ? "✏️ Editar Tarjeta" : "➕ Nueva Tarjeta"}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div><Label>Nombre de la tarjeta</Label>
+                  <input placeholder="Ej: Visa Bancolombia" value={cardForm.name} onChange={e => setCardForm(f => ({ ...f, name: e.target.value }))} style={inputSt} />
+                </div>
+                <div><Label>Titular</Label>
+                  <select value={cardForm.holder} onChange={e => setCardForm(f => ({ ...f, holder: e.target.value }))} style={inputSt}>
+                    {state.members.map(m => <option key={m.id} value={m.id}>{m.emoji} {m.name}</option>)}
+                  </select>
+                </div>
+                <div><Label>Cupo total ($)</Label>
+                  <input type="number" placeholder="0" value={cardForm.limit} onChange={e => setCardForm(f => ({ ...f, limit: e.target.value }))} style={inputSt} />
+                </div>
+                <div><Label>Tasa de interés mensual (%)</Label>
+                  <input type="number" placeholder="2.0" step="0.1" value={cardForm.rate} onChange={e => setCardForm(f => ({ ...f, rate: e.target.value }))} style={inputSt} />
+                </div>
+                <div><Label>Día de cierre</Label>
+                  <input type="number" min="1" max="31" placeholder="25" value={cardForm.dueDate} onChange={e => setCardForm(f => ({ ...f, dueDate: e.target.value }))} style={inputSt} />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveCard} style={btnPrimary(C.accentOrange)}>{editCardId ? "Actualizar" : "Guardar"}</button>
+                  <button onClick={() => { setShowCardForm(false); setEditCardId(null); }} style={btnGhost}>Cancelar</button>
+                </div>
+              </div>
+            </Box>
+          )}
+
+          {state.cards.length === 0 && !showCardForm && (
+            <Box style={{ textAlign: "center", padding: 32 }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>💳</div>
+              <div style={{ color: C.textMuted, fontSize: 14 }}>Sin tarjetas registradas.<br />Agrega tu primera tarjeta arriba.</div>
+            </Box>
+          )}
+
+          {state.cards.map(c => {
+            const holder = state.members.find(m => m.id === c.holder);
+            const activePurchases = (c.purchases || []).filter(p => p.paidInstallments < p.installments);
+            const totalBalance = activePurchases.reduce((sum, p) => {
+              const rows = buildPurchaseAmortization(p.amount, p.installments, c.rate);
+              return sum + (rows[p.paidInstallments]?.balance || 0);
+            }, 0);
+            const utilization = c.limit > 0 ? (totalBalance / c.limit) * 100 : 0;
+            return (
+              <Box key={c.id} style={{ borderColor: C.accentOrange + "33" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                  <div>
+                    <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{c.name}</div>
+                    <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>{holder?.emoji} {holder?.name}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => startEditCard(c)} style={{ background: C.accent + "12", border: `1px solid ${C.accent}33`, color: C.accent, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️ Editar</button>
+                    <button onClick={() => deleteCard(c.id)} style={{ background: C.accentRed + "12", border: `1px solid ${C.accentRed}33`, color: C.accentRed, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>Eliminar</button>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 8 }}>
+                    <div style={{ color: C.textMuted, fontSize: 10 }}>CUPO</div>
+                    <div style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{fmt(c.limit)}</div>
+                  </div>
+                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 8 }}>
+                    <div style={{ color: C.textMuted, fontSize: 10 }}>TASA MENSUAL</div>
+                    <div style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{c.rate}%</div>
+                  </div>
+                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 8 }}>
+                    <div style={{ color: C.textMuted, fontSize: 10 }}>CIERRE DÍA</div>
+                    <div style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{c.dueDate}</div>
+                  </div>
+                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 8 }}>
+                    <div style={{ color: C.textMuted, fontSize: 10 }}>COMPRAS ACTIVAS</div>
+                    <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 13 }}>{activePurchases.length}</div>
+                  </div>
+                </div>
+                <div style={{ marginBottom: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: C.textMuted, fontSize: 11 }}>Utilización del cupo</span>
+                    <span style={{ color: utilization > 70 ? C.accentRed : C.accent, fontSize: 11, fontWeight: 700 }}>{fmtPct(utilization)}</span>
+                  </div>
+                  <Bar value={totalBalance} max={c.limit} color={C.accentOrange} h={6} />
+                </div>
+              </Box>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
