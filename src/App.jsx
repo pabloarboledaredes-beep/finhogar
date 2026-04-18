@@ -561,30 +561,212 @@ const Gastos = ({ state, setState }) => {
 const Deudas = ({ state, setState }) => {
   const [tab, setTab] = useState("cards");
   const [showLoanForm, setShowLoanForm] = useState(false);
-  const [loanForm, setLoanForm] = useState({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "" });
+  const [loanForm, setLoanForm] = useState({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", addToCalendar: true });
+
+  // Payment modal state
+  const [payModal, setPayModal] = useState(null); // { loanId, calcPmt, currentBalance }
+  const [payAmount, setPayAmount] = useState("");
+  const [payStrategy, setPayStrategy] = useState("plazo"); // "plazo" | "deuda"
+
   const cardSummary = useMemo(() => state.cards.map(card => { const ap = card.purchases.filter(p => p.paidInstallments < p.installments); const currentDue = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0); const totalBalance = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.balance || 0) + (rows[p.paidInstallments]?.capital || 0); }, 0); return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) }; }), [state.cards]);
+
   const totalCardDue = cardSummary.reduce((s, c) => s + c.currentDue, 0);
-  const totalLoanDue = state.loans.reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments); return s + pmt; }, 0);
+  const totalLoanDue = state.loans.reduce((s, l) => {
+    const effectivePmt = l.actualPayment || buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments).pmt;
+    return s + effectivePmt;
+  }, 0);
+
   const payPurchaseInstallment = (cardId, purchaseId) => setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: c.purchases.map(p => p.id === purchaseId ? { ...p, paidInstallments: Math.min(p.paidInstallments + 1, p.installments) } : p) } : c) }));
-  const payLoanInstallment = (loanId) => setState(s => ({ ...s, loans: s.loans.map(l => l.id === loanId ? { ...l, paidInstallments: Math.min(l.paidInstallments + 1, l.totalInstallments) } : l) }));
-  const addLoan = () => { if (!loanForm.name || !loanForm.principal) return; setState(s => ({ ...s, loans: [...s.loans, { id: Date.now(), ...loanForm, holder: +loanForm.holder, principal: +loanForm.principal, rate: +loanForm.rate, totalInstallments: +loanForm.totalInstallments, paidInstallments: +loanForm.paidInstallments || 0 }] })); setLoanForm({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "" }); setShowLoanForm(false); };
-  const deleteLoan = (id) => setState(s => ({ ...s, loans: s.loans.filter(l => l.id !== id) }));
+
+  const openPayModal = (loan, pmt, currentBalance) => {
+    setPayModal({ loanId: loan.id, calcPmt: pmt, currentBalance });
+    setPayAmount(String(loan.actualPayment || pmt));
+    setPayStrategy("plazo");
+  };
+
+  const confirmLoanPayment = () => {
+    const amt = +payAmount;
+    if (!amt || !payModal) return;
+    const { loanId, calcPmt, currentBalance } = payModal;
+
+    setState(s => {
+      const loan = s.loans.find(l => l.id === loanId);
+      if (!loan) return s;
+
+      const r = loan.rate / 100;
+      const interest = currentBalance * r;
+      const capitalPaid = amt - interest;
+      const extraCapital = Math.max(0, capitalPaid - (calcPmt - interest));
+      const newBalance = Math.max(0, currentBalance - capitalPaid);
+      const otherCosts = Math.max(0, loan.actualPayment ? amt - calcPmt : 0);
+
+      let updatedLoan = { ...loan, paidInstallments: loan.paidInstallments + 1 };
+
+      // If paid more than calculated → apply extra capital
+      if (extraCapital > 0) {
+        if (payStrategy === "deuda") {
+          // Reduce remaining balance — recalculate installments needed
+          const newPrincipalForCalc = newBalance;
+          const r2 = loan.rate / 100;
+          const newInstallments = r2 === 0
+            ? Math.ceil(newBalance / (calcPmt))
+            : Math.ceil(Math.log(calcPmt / (calcPmt - newBalance * r2)) / Math.log(1 + r2));
+          updatedLoan = { ...updatedLoan, totalInstallments: loan.paidInstallments + 1 + Math.max(1, newInstallments) };
+        }
+        // "plazo" strategy: keep same installments, balance naturally reduces faster
+      }
+
+      // Add expense record for the payment
+      const newExpense = {
+        id: Date.now(), memberId: loan.holder, category: "Otros",
+        desc: `Cuota ${loan.name}${otherCosts > 0 ? ` (incl. ${fmt(otherCosts)} otros costos)` : ""}${extraCapital > 0 ? ` (+${fmt(extraCapital)} extra capital)` : ""}`,
+        amount: amt, payMethod: "Transferencia", cardId: null, installments: 1, date: getToday(),
+      };
+
+      return {
+        ...s,
+        loans: s.loans.map(l => l.id === loanId ? updatedLoan : l),
+        expenses: [newExpense, ...s.expenses],
+      };
+    });
+
+    setPayModal(null);
+    setPayAmount("");
+  };
+
+  const addLoan = () => {
+    if (!loanForm.name || !loanForm.principal) return;
+    const newLoan = {
+      id: Date.now(),
+      name: loanForm.name, bank: loanForm.bank, holder: +loanForm.holder,
+      principal: +loanForm.principal, rate: +loanForm.rate,
+      totalInstallments: +loanForm.totalInstallments,
+      paidInstallments: +loanForm.paidInstallments || 0,
+      actualPayment: loanForm.actualPayment ? +loanForm.actualPayment : null,
+      dueDay: loanForm.dueDay || null,
+    };
+
+    setState(s => {
+      const newState = { ...s, loans: [...s.loans, newLoan] };
+      // Auto-add to calendar if dueDay set
+      if (loanForm.addToCalendar && loanForm.dueDay) {
+        const bill = {
+          id: Date.now() + 1, concept: loanForm.name, bank: loanForm.bank,
+          amount: loanForm.actualPayment ? +loanForm.actualPayment : Math.round(buildLoanAmortization(+loanForm.principal, +loanForm.rate, +loanForm.totalInstallments).pmt),
+          dueDay: +loanForm.dueDay, category: "Otros", payMethod: "Transferencia",
+          recurrence: "mensual", color: C.accentPurple, payments: [], fromLoanId: newLoan.id,
+        };
+        newState.fixedBills = [...(s.fixedBills || []), bill];
+      }
+      return newState;
+    });
+
+    setLoanForm({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", addToCalendar: true });
+    setShowLoanForm(false);
+  };
+
+  const deleteLoan = (id) => setState(s => ({ ...s, loans: s.loans.filter(l => l.id !== id), fixedBills: (s.fixedBills || []).filter(b => b.fromLoanId !== id) }));
   const deletePurchase = (cardId, purchaseId) => setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: c.purchases.filter(p => p.id !== purchaseId) } : c) }));
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* Pay modal */}
+      {payModal && (() => {
+        const loan = state.loans.find(l => l.id === payModal.loanId);
+        if (!loan) return null;
+        const amt = +payAmount || 0;
+        const r = loan.rate / 100;
+        const interest = Math.round(payModal.currentBalance * r);
+        const capitalPaid = Math.max(0, amt - interest);
+        const calcCapital = Math.max(0, payModal.calcPmt - interest);
+        const extraCapital = Math.max(0, capitalPaid - calcCapital);
+        const otherCosts = loan.actualPayment ? Math.max(0, payModal.calcPmt - (loan.actualPayment || payModal.calcPmt)) : 0;
+        const isExtra = amt > payModal.calcPmt;
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 360, width: "100%", border: `1.5px solid ${C.accentPurple}44` }}>
+              <div style={{ color: C.text, fontWeight: 800, fontSize: 17, marginBottom: 4 }}>💸 Registrar Pago</div>
+              <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>{loan.name} · cuota #{loan.paidInstallments + 1}</div>
+
+              <Label>¿Cuánto pagaste?</Label>
+              <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ ...inputSt, marginBottom: 12, fontSize: 18, fontWeight: 700 }} placeholder={String(payModal.calcPmt)} />
+
+              {/* Breakdown */}
+              <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Cuota calculada</span>
+                  <span style={{ color: C.text, fontSize: 12, fontWeight: 600 }}>{fmt(payModal.calcPmt)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Interés</span>
+                  <span style={{ color: C.accentRed, fontSize: 12 }}>{fmt(interest)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital</span>
+                  <span style={{ color: C.accent, fontSize: 12 }}>{fmt(calcCapital)}</span>
+                </div>
+                {otherCosts > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Otros costos</span>
+                  <span style={{ color: C.accentYellow, fontSize: 12 }}>{fmt(otherCosts)}</span>
+                </div>}
+                {isExtra && <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 2 }}>
+                  <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>Abono extra a capital</span>
+                  <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>+{fmt(extraCapital)}</span>
+                </div>}
+              </div>
+
+              {/* Strategy selector - only if extra payment */}
+              {isExtra && (
+                <div style={{ marginBottom: 14 }}>
+                  <Label>¿Para qué usar el abono extra?</Label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[
+                      ["plazo", "⏱️ Reducir el plazo", "Mantienes la misma cuota pero terminas antes"],
+                      ["deuda", "💰 Reducir la cuota", "Recalcula cuotas menores con el saldo actualizado"],
+                    ].map(([val, title, desc]) => (
+                      <button key={val} onClick={() => setPayStrategy(val)} style={{
+                        display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px",
+                        borderRadius: 10, border: `1.5px solid ${payStrategy === val ? C.accentPurple : C.border}`,
+                        background: payStrategy === val ? C.accentPurple + "10" : "transparent",
+                        cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                      }}>
+                        <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${payStrategy === val ? C.accentPurple : C.border}`, background: payStrategy === val ? C.accentPurple : "transparent", flexShrink: 0, marginTop: 1 }} />
+                        <div>
+                          <div style={{ color: payStrategy === val ? C.accentPurple : C.text, fontWeight: 700, fontSize: 13 }}>{title}</div>
+                          <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={confirmLoanPayment} style={{ ...btnPrimary(C.accentPurple), flex: 1 }}>✓ Confirmar pago</button>
+                <button onClick={() => setPayModal(null)} style={{ ...btnGhost, flex: 1 }}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Control de Deudas</div>
         {tab === "loans" && <button onClick={() => setShowLoanForm(!showLoanForm)} style={btnPrimary(C.accentPurple)}>+ Crédito</button>}
       </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Box style={{ textAlign: "center", borderColor: C.accentOrange + "44" }}><div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700 }}>CUOTA TARJETAS</div><div style={{ color: C.accentOrange, fontSize: 22, fontWeight: 800, marginTop: 4 }}>{fmt(totalCardDue)}</div><div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>Este mes</div></Box>
         <Box style={{ textAlign: "center", borderColor: C.accentPurple + "44" }}><div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700 }}>CUOTA CRÉDITOS</div><div style={{ color: C.accentPurple, fontSize: 22, fontWeight: 800, marginTop: 4 }}>{fmt(totalLoanDue)}</div><div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>Este mes</div></Box>
       </div>
+
       <div style={{ display: "flex", gap: 8 }}>
         {[["cards", "💳 Tarjetas"], ["loans", "🏦 Créditos"]].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `1.5px solid ${tab === id ? C.accent : C.border}`, background: tab === id ? C.accent + "10" : "transparent", color: tab === id ? C.accent : C.textMuted, fontWeight: 700, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>{label}</button>
         ))}
       </div>
+
       {tab === "cards" && (<>
         <Box style={{ background: C.accentOrange + "08", borderColor: C.accentOrange + "33" }}>
           <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 14, marginBottom: 10 }}>📋 Consolidado Mensual Tarjetas</div>
@@ -618,35 +800,132 @@ const Deudas = ({ state, setState }) => {
           </Box>
         ); })}
       </>)}
+
       {tab === "loans" && (<>
         {showLoanForm && (
           <Box style={{ borderColor: C.accentPurple + "44" }}>
             <div style={{ color: C.accentPurple, fontWeight: 800, marginBottom: 12 }}>Nuevo Crédito</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[["name","Nombre del crédito","text"],["bank","Entidad bancaria","text"],["principal","Monto desembolsado ($)","number"],["rate","Tasa mensual (%)","number"],["totalInstallments","Total de cuotas","number"],["paidInstallments","Cuotas ya pagadas","number"]].map(([k,ph,type]) => <div key={k}><Label>{ph}</Label><input type={type} placeholder={ph} value={loanForm[k]} onChange={e => setLoanForm(f => ({ ...f, [k]: e.target.value }))} style={inputSt} /></div>)}
-              <div><Label>Titular</Label><select value={loanForm.holder} onChange={e => setLoanForm(f => ({ ...f, holder: e.target.value }))} style={inputSt}>{state.members.map(m => <option key={m.id} value={m.id}>{m.emoji} {m.name}</option>)}</select></div>
-              <div style={{ display: "flex", gap: 8 }}><button onClick={addLoan} style={btnPrimary(C.accentPurple)}>Guardar</button><button onClick={() => setShowLoanForm(false)} style={btnGhost}>Cancelar</button></div>
+              <div><Label>Nombre del crédito</Label><input placeholder="Ej: Libre inversión" value={loanForm.name} onChange={e => setLoanForm(f => ({ ...f, name: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Entidad bancaria</Label><input placeholder="Ej: Bancolombia" value={loanForm.bank} onChange={e => setLoanForm(f => ({ ...f, bank: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Monto desembolsado ($)</Label><input type="number" value={loanForm.principal} onChange={e => setLoanForm(f => ({ ...f, principal: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Tasa mensual (%)</Label><input type="number" step="0.01" value={loanForm.rate} onChange={e => setLoanForm(f => ({ ...f, rate: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Total de cuotas</Label><input type="number" value={loanForm.totalInstallments} onChange={e => setLoanForm(f => ({ ...f, totalInstallments: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Cuotas ya pagadas</Label><input type="number" value={loanForm.paidInstallments} onChange={e => setLoanForm(f => ({ ...f, paidInstallments: e.target.value }))} style={inputSt} /></div>
+
+              {/* Actual payment — key new field */}
+              {loanForm.principal && loanForm.rate && loanForm.totalInstallments && (() => {
+                const calcPmt = Math.round(buildLoanAmortization(+loanForm.principal, +loanForm.rate, +loanForm.totalInstallments).pmt);
+                return (
+                  <div style={{ background: C.accentPurple + "08", borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+                      Cuota calculada: <strong>{fmt(calcPmt)}</strong>
+                    </div>
+                    <Label>Cuota real que paga (si es diferente)</Label>
+                    <input type="number" placeholder={`Dejar vacío si es ${fmt(calcPmt)}`} value={loanForm.actualPayment} onChange={e => setLoanForm(f => ({ ...f, actualPayment: e.target.value }))} style={inputSt} />
+                    {loanForm.actualPayment && +loanForm.actualPayment !== calcPmt && (
+                      <div style={{ color: C.accentYellow, fontSize: 12, marginTop: 6, fontWeight: 600 }}>
+                        Diferencia de {fmt(Math.abs(+loanForm.actualPayment - calcPmt))} → se registrará como "otros costos"
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div><Label>Titular</Label>
+                <select value={loanForm.holder} onChange={e => setLoanForm(f => ({ ...f, holder: e.target.value }))} style={inputSt}>
+                  {state.members.map(m => <option key={m.id} value={m.id}>{m.emoji} {m.name}</option>)}
+                </select>
+              </div>
+
+              {/* Calendar integration */}
+              <div style={{ background: C.accentBlue + "08", borderRadius: 10, padding: 12 }}>
+                <div style={{ color: C.accentBlue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>📅 Calendario de pagos</div>
+                <div><Label>Día de pago mensual (1-31)</Label>
+                  <input type="number" min="1" max="31" placeholder="Ej: 5" value={loanForm.dueDay} onChange={e => setLoanForm(f => ({ ...f, dueDay: e.target.value }))} style={inputSt} />
+                </div>
+                {loanForm.dueDay && (
+                  <button onClick={() => setLoanForm(f => ({ ...f, addToCalendar: !f.addToCalendar }))} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${loanForm.addToCalendar ? C.accentBlue : C.border}`, background: loanForm.addToCalendar ? C.accentBlue + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${loanForm.addToCalendar ? C.accentBlue : C.border}`, background: loanForm.addToCalendar ? C.accentBlue : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {loanForm.addToCalendar && <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>}
+                    </div>
+                    <div style={{ color: loanForm.addToCalendar ? C.accentBlue : C.textMuted, fontSize: 13, fontWeight: 600 }}>Agregar automáticamente al calendario de pagos</div>
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={addLoan} style={btnPrimary(C.accentPurple)}>Guardar</button>
+                <button onClick={() => setShowLoanForm(false)} style={btnGhost}>Cancelar</button>
+              </div>
             </div>
           </Box>
         )}
-        {state.loans.map(loan => { const member = state.members.find(m => m.id === loan.holder); const { rows, pmt } = buildLoanAmortization(loan.principal, loan.rate, loan.totalInstallments, loan.paidInstallments); const remaining = loan.totalInstallments - loan.paidInstallments; const currentBalance = rows[loan.paidInstallments]?.balance || 0; const totalInterest = rows.reduce((s, r) => s + r.interest, 0); const paidPct = (loan.paidInstallments / loan.totalInstallments) * 100; return (
-          <Box key={loan.id}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-              <div><div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div><div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name} · Tasa {loan.rate}% mensual</div></div>
-              <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-              <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>SALDO ACTUAL</div><div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 16 }}>{fmt(currentBalance)}</div></div>
-              <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>CUOTA MENSUAL</div><div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{fmt(pmt)}</div></div>
-              <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>CUOTAS REST.</div><div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{remaining} de {loan.totalInstallments}</div></div>
-              <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL INTERÉS</div><div style={{ color: C.accentRed, fontWeight: 800, fontSize: 16 }}>{fmt(totalInterest)}</div></div>
-            </div>
-            <div style={{ marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Progreso del crédito</span><span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmtPct(paidPct)}</span></div><Bar value={loan.paidInstallments} max={loan.totalInstallments} color={C.accentPurple} h={8} /></div>
-            <AmortTable rows={rows} title={`Tabla de amortización: ${loan.name}`} color={C.accentPurple} />
-            {remaining > 0 && <button onClick={() => payLoanInstallment(loan.id)} style={{ ...btnPrimary(C.accentPurple), width: "100%", marginTop: 12, fontSize: 13 }}>💸 Pagar cuota #{loan.paidInstallments + 1} — {fmt(pmt)}</button>}
-            {remaining === 0 && <div style={{ textAlign: "center", color: C.accent, fontWeight: 800, marginTop: 12 }}>✅ Crédito cancelado</div>}
-          </Box>
-        ); })}
+
+        {state.loans.map(loan => {
+          const member = state.members.find(m => m.id === loan.holder);
+          const { rows, pmt } = buildLoanAmortization(loan.principal, loan.rate, loan.totalInstallments, loan.paidInstallments);
+          const remaining = loan.totalInstallments - loan.paidInstallments;
+          const currentBalance = rows[loan.paidInstallments]?.balance || 0;
+          const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
+          const paidPct = (loan.paidInstallments / loan.totalInstallments) * 100;
+          const effectivePmt = loan.actualPayment || pmt;
+          const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - pmt) : 0;
+          const linkedBill = (state.fixedBills || []).find(b => b.fromLoanId === loan.id);
+
+          return (
+            <Box key={loan.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <div>
+                  <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div>
+                  <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name} · Tasa {loan.rate}% mensual</div>
+                  {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}</div>}
+                </div>
+                <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>SALDO ACTUAL</div><div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 16 }}>{fmt(currentBalance)}</div></div>
+                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}>
+                  <div style={{ color: C.textMuted, fontSize: 10 }}>CUOTA {loan.actualPayment ? "REAL" : "MENSUAL"}</div>
+                  <div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{fmt(effectivePmt)}</div>
+                  {loan.actualPayment && loan.actualPayment !== pmt && <div style={{ color: C.textMuted, fontSize: 10 }}>Calculada: {fmt(pmt)}</div>}
+                </div>
+                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>CUOTAS REST.</div><div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{remaining} de {loan.totalInstallments}</div></div>
+                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL INTERÉS</div><div style={{ color: C.accentRed, fontWeight: 800, fontSize: 16 }}>{fmt(totalInterest)}</div></div>
+              </div>
+
+              {/* Other costs breakdown */}
+              {otherCosts > 0 && (
+                <div style={{ background: C.accentYellow + "10", border: `1px solid ${C.accentYellow}33`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                    <span style={{ color: C.textMuted }}>Cuota base</span><span style={{ color: C.text, fontWeight: 600 }}>{fmt(pmt)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 }}>
+                    <span style={{ color: C.accentYellow, fontWeight: 700 }}>+ Otros costos (seguros, etc.)</span><span style={{ color: C.accentYellow, fontWeight: 700 }}>{fmt(otherCosts)}</span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Progreso del crédito</span>
+                  <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmtPct(paidPct)}</span>
+                </div>
+                <Bar value={loan.paidInstallments} max={loan.totalInstallments} color={C.accentPurple} h={8} />
+              </div>
+
+              <AmortTable rows={rows} title={`Tabla de amortización: ${loan.name}`} color={C.accentPurple} />
+
+              {remaining > 0 && (
+                <button onClick={() => openPayModal(loan, pmt, currentBalance)} style={{ ...btnPrimary(C.accentPurple), width: "100%", marginTop: 12, fontSize: 13 }}>
+                  💸 Pagar cuota #{loan.paidInstallments + 1}
+                </button>
+              )}
+              {remaining === 0 && <div style={{ textAlign: "center", color: C.accent, fontWeight: 800, marginTop: 12 }}>✅ Crédito cancelado</div>}
+            </Box>
+          );
+        })}
       </>)}
     </div>
   );
