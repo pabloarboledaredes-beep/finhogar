@@ -594,33 +594,40 @@ const Deudas = ({ state, setState }) => {
       if (!loan) return s;
 
       const r = loan.rate / 100;
-      const interest = currentBalance * r;
-      const capitalPaid = amt - interest;
-      const extraCapital = Math.max(0, capitalPaid - (calcPmt - interest));
-      const newBalance = Math.max(0, currentBalance - capitalPaid);
-      const otherCosts = Math.max(0, loan.actualPayment ? amt - calcPmt : 0);
+      const interest = Math.round(currentBalance * r);
+
+      // Fixed costs that the bank charges on top of the amortization quota
+      const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - calcPmt) : 0;
+      const effectivePmt = calcPmt + otherCosts;
+
+      // Capital applied = paid amount minus interest minus other costs
+      const capitalPaid = Math.max(0, amt - interest - otherCosts);
+      const calcCapital = Math.max(0, calcPmt - interest);
+      const extraCapital = Math.max(0, capitalPaid - calcCapital);
+
+      // isExtra only when paid more than the real expected payment (calcPmt + otherCosts)
+      const isExtra = amt > effectivePmt;
 
       let updatedLoan = { ...loan, paidInstallments: loan.paidInstallments + 1 };
 
-      // If paid more than calculated → apply extra capital
-      if (extraCapital > 0) {
-        if (payStrategy === "deuda") {
-          // Reduce remaining balance — recalculate installments needed
-          const newPrincipalForCalc = newBalance;
-          const r2 = loan.rate / 100;
-          const newInstallments = r2 === 0
-            ? Math.ceil(newBalance / (calcPmt))
-            : Math.ceil(Math.log(calcPmt / (calcPmt - newBalance * r2)) / Math.log(1 + r2));
-          updatedLoan = { ...updatedLoan, totalInstallments: loan.paidInstallments + 1 + Math.max(1, newInstallments) };
-        }
-        // "plazo" strategy: keep same installments, balance naturally reduces faster
+      if (isExtra && extraCapital > 0 && payStrategy === "deuda") {
+        const newBalance = Math.max(0, currentBalance - capitalPaid);
+        const r2 = loan.rate / 100;
+        const newInstallments = r2 === 0
+          ? Math.ceil(newBalance / calcCapital)
+          : Math.ceil(Math.log(calcPmt / (calcPmt - newBalance * r2)) / Math.log(1 + r2));
+        updatedLoan = { ...updatedLoan, totalInstallments: loan.paidInstallments + 1 + Math.max(1, newInstallments) };
       }
 
-      // Add expense record for the payment
+      const desc = [
+        `Cuota ${loan.name}`,
+        otherCosts > 0 ? `(incl. ${fmt(otherCosts)} otros costos)` : "",
+        isExtra && extraCapital > 0 ? `(+${fmt(extraCapital)} extra a capital)` : "",
+      ].filter(Boolean).join(" ");
+
       const newExpense = {
         id: Date.now(), memberId: loan.holder, category: "Otros",
-        desc: `Cuota ${loan.name}${otherCosts > 0 ? ` (incl. ${fmt(otherCosts)} otros costos)` : ""}${extraCapital > 0 ? ` (+${fmt(extraCapital)} extra capital)` : ""}`,
-        amount: amt, payMethod: "Transferencia", cardId: null, installments: 1, date: getToday(),
+        desc, amount: amt, payMethod: "Transferencia", cardId: null, installments: 1, date: getToday(),
       };
 
       return {
@@ -678,11 +685,25 @@ const Deudas = ({ state, setState }) => {
         const amt = +payAmount || 0;
         const r = loan.rate / 100;
         const interest = Math.round(payModal.currentBalance * r);
-        const capitalPaid = Math.max(0, amt - interest);
+
+        // otherCosts = fixed extra the bank charges (insurance, etc.) — always present
+        const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - payModal.calcPmt) : 0;
+
+        // effectivePmt = what you normally pay = calcPmt + otherCosts
+        const effectivePmt = payModal.calcPmt + otherCosts;
+
+        // Capital paid = total paid MINUS interest MINUS other costs (not capital)
+        const capitalPaid = Math.max(0, amt - interest - otherCosts);
+
+        // Normal capital from calculated pmt (without otherCosts)
         const calcCapital = Math.max(0, payModal.calcPmt - interest);
+
+        // Extra capital = only if paid MORE than effectivePmt
         const extraCapital = Math.max(0, capitalPaid - calcCapital);
-        const otherCosts = loan.actualPayment ? Math.max(0, payModal.calcPmt - (loan.actualPayment || payModal.calcPmt)) : 0;
-        const isExtra = amt > payModal.calcPmt;
+
+        // isExtra only when paid strictly more than the real expected payment
+        const isExtra = amt > effectivePmt;
+
         return (
           <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
             <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 360, width: "100%", border: `1.5px solid ${C.accentPurple}44` }}>
@@ -690,40 +711,50 @@ const Deudas = ({ state, setState }) => {
               <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>{loan.name} · cuota #{loan.paidInstallments + 1}</div>
 
               <Label>¿Cuánto pagaste?</Label>
-              <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ ...inputSt, marginBottom: 12, fontSize: 18, fontWeight: 700 }} placeholder={String(payModal.calcPmt)} />
+              <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ ...inputSt, marginBottom: 12, fontSize: 18, fontWeight: 700 }} placeholder={String(effectivePmt)} />
 
               {/* Breakdown */}
               <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Cuota calculada</span>
-                  <span style={{ color: C.text, fontSize: 12, fontWeight: 600 }}>{fmt(payModal.calcPmt)}</span>
+                  <span style={{ color: C.textMuted, fontSize: 12, fontWeight: 600 }}>Cuota a pagar</span>
+                  <span style={{ color: C.text, fontSize: 12, fontWeight: 700 }}>{fmt(effectivePmt)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: C.textMuted, fontSize: 12 }}>→ Interés</span>
                   <span style={{ color: C.accentRed, fontSize: 12 }}>{fmt(interest)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital</span>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Abono a capital</span>
                   <span style={{ color: C.accent, fontSize: 12 }}>{fmt(calcCapital)}</span>
                 </div>
-                {otherCosts > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Otros costos</span>
-                  <span style={{ color: C.accentYellow, fontSize: 12 }}>{fmt(otherCosts)}</span>
-                </div>}
-                {isExtra && <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 2 }}>
-                  <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>Abono extra a capital</span>
-                  <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>+{fmt(extraCapital)}</span>
-                </div>}
+                {otherCosts > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: C.accentYellow, fontSize: 12 }}>→ Otros costos (seguros, etc.)</span>
+                    <span style={{ color: C.accentYellow, fontSize: 12, fontWeight: 600 }}>{fmt(otherCosts)}</span>
+                  </div>
+                )}
+                {isExtra && (
+                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 2 }}>
+                    <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>+ Abono extra a capital</span>
+                    <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmt(extraCapital)}</span>
+                  </div>
+                )}
+                {amt > 0 && amt < effectivePmt && (
+                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.accentRed}33`, paddingTop: 6, marginTop: 2 }}>
+                    <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>⚠️ Pago incompleto</span>
+                    <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>Faltan {fmt(effectivePmt - amt)}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Strategy selector - only if extra payment */}
+              {/* Strategy selector - only if truly extra */}
               {isExtra && (
                 <div style={{ marginBottom: 14 }}>
                   <Label>¿Para qué usar el abono extra?</Label>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {[
-                      ["plazo", "⏱️ Reducir el plazo", "Mantienes la misma cuota pero terminas antes"],
-                      ["deuda", "💰 Reducir la cuota", "Recalcula cuotas menores con el saldo actualizado"],
+                      ["plazo", "⏱️ Reducir el plazo", "Terminas antes, misma cuota mensual"],
+                      ["deuda", "💰 Reducir la cuota", "Recalcula cuotas menores con el nuevo saldo"],
                     ].map(([val, title, desc]) => (
                       <button key={val} onClick={() => setPayStrategy(val)} style={{
                         display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px",
