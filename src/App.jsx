@@ -572,7 +572,7 @@ const Gastos = ({ state, setState }) => {
 const Deudas = ({ state, setState }) => {
   const [tab, setTab] = useState("cards");
   const [showLoanForm, setShowLoanForm] = useState(false);
-  const [loanForm, setLoanForm] = useState({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", addToCalendar: true });
+  const [loanForm, setLoanForm] = useState({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", addToCalendar: true });
 
   // Payment modal state
   const [payModal, setPayModal] = useState(null); // { loanId, calcPmt, currentBalance }
@@ -585,7 +585,7 @@ const Deudas = ({ state, setState }) => {
 
   // Edit loan modal
   const [editLoan, setEditLoan] = useState(null);
-  const [editLoanForm, setEditLoanForm] = useState({ name: "", bank: "", principal: "", rate: "", totalInstallments: "", actualPayment: "", dueDay: "", extraAmount: "" });
+  const [editLoanForm, setEditLoanForm] = useState({ name: "", bank: "", principal: "", rate: "", totalInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", extraAmount: "" });
 
   const cardSummary = useMemo(() => state.cards.map(card => { const ap = card.purchases.filter(p => p.paidInstallments < p.installments); const currentDue = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0); const totalBalance = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.balance || 0) + (rows[p.paidInstallments]?.capital || 0); }, 0); return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) }; }), [state.cards]);
 
@@ -624,7 +624,7 @@ const Deudas = ({ state, setState }) => {
 
   const openEditLoan = (loan) => {
     setEditLoan(loan.id);
-    setEditLoanForm({ name: loan.name, bank: loan.bank, principal: String(loan.principal), rate: String(loan.rate), totalInstallments: String(loan.totalInstallments), actualPayment: loan.actualPayment ? String(loan.actualPayment) : "", dueDay: loan.dueDay || "", extraAmount: "" });
+    setEditLoanForm({ name: loan.name, bank: loan.bank, principal: String(loan.principal), rate: String(loan.rate), totalInstallments: String(loan.totalInstallments), actualPayment: loan.actualPayment ? String(loan.actualPayment) : "", dueDay: loan.dueDay || "", nextPaymentDate: loan.nextPaymentDate || "", extraAmount: "" });
   };
 
   const saveEditLoan = () => {
@@ -635,21 +635,43 @@ const Deudas = ({ state, setState }) => {
       const newPrincipal = +editLoanForm.principal + extra;
       const updatedLoan = {
         ...loan,
-        name: editLoanForm.name,
-        bank: editLoanForm.bank,
-        principal: newPrincipal,
-        rate: +editLoanForm.rate,
+        name: editLoanForm.name, bank: editLoanForm.bank,
+        principal: newPrincipal, rate: +editLoanForm.rate,
         totalInstallments: +editLoanForm.totalInstallments,
         actualPayment: editLoanForm.actualPayment ? +editLoanForm.actualPayment : null,
         dueDay: editLoanForm.dueDay || null,
+        nextPaymentDate: editLoanForm.nextPaymentDate || null,
       };
-      // Update linked calendar bill if exists
-      const updatedBills = (s.fixedBills || []).map(b => b.fromLoanId === editLoan ? {
-        ...b,
-        concept: editLoanForm.name,
-        dueDay: editLoanForm.dueDay ? +editLoanForm.dueDay : b.dueDay,
-        amount: editLoanForm.actualPayment ? +editLoanForm.actualPayment : Math.round(buildLoanAmortization(newPrincipal, +editLoanForm.rate, +editLoanForm.totalInstallments).pmt),
-      } : b);
+
+      const pmt = Math.round(buildLoanAmortization(newPrincipal, +editLoanForm.rate, +editLoanForm.totalInstallments).pmt);
+      const amount = editLoanForm.actualPayment ? +editLoanForm.actualPayment : pmt;
+
+      // Build pre-payments for months before nextPaymentDate
+      const prePayments = [];
+      if (editLoanForm.nextPaymentDate) {
+        const nextDate = new Date(editLoanForm.nextPaymentDate);
+        for (let i = 24; i >= 1; i--) {
+          const d = new Date(nextDate.getFullYear(), nextDate.getMonth() - i, 1);
+          const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+          prePayments.push({ id: Date.now() + i, month: ym, paid: true, paidDate: "auto", expenseId: null, autoMarked: true });
+        }
+      }
+
+      const updatedBills = (s.fixedBills || []).map(b => {
+        if (b.fromLoanId !== editLoan) return b;
+        // Keep manual payments, replace auto-marked ones with new prePayments
+        const manualPayments = (b.payments || []).filter(p => !p.autoMarked);
+        const newMonths = new Set(prePayments.map(p => p.month));
+        const filteredManual = manualPayments.filter(p => !newMonths.has(p.month));
+        return {
+          ...b,
+          concept: editLoanForm.name,
+          dueDay: editLoanForm.dueDay ? +editLoanForm.dueDay : b.dueDay,
+          amount, nextPaymentDate: editLoanForm.nextPaymentDate || null,
+          payments: [...prePayments, ...filteredManual],
+        };
+      });
+
       return { ...s, loans: s.loans.map(l => l.id === editLoan ? updatedLoan : l), fixedBills: updatedBills };
     });
     setEditLoan(null);
@@ -728,24 +750,40 @@ const Deudas = ({ state, setState }) => {
       paidInstallments: +loanForm.paidInstallments || 0,
       actualPayment: loanForm.actualPayment ? +loanForm.actualPayment : null,
       dueDay: loanForm.dueDay || null,
+      nextPaymentDate: loanForm.nextPaymentDate || null,
     };
 
     setState(s => {
       const newState = { ...s, loans: [...s.loans, newLoan] };
-      // Auto-add to calendar if dueDay set
       if (loanForm.addToCalendar && loanForm.dueDay) {
+        const pmt = Math.round(buildLoanAmortization(+loanForm.principal, +loanForm.rate, +loanForm.totalInstallments).pmt);
+        const amount = loanForm.actualPayment ? +loanForm.actualPayment : pmt;
+
+        // Pre-mark all months before nextPaymentDate as already paid
+        const prePayments = [];
+        if (loanForm.nextPaymentDate) {
+          const nextDate = new Date(loanForm.nextPaymentDate);
+          const today = new Date();
+          // Go back up to 24 months and mark everything before next payment month as paid
+          for (let i = 24; i >= 1; i--) {
+            const d = new Date(nextDate.getFullYear(), nextDate.getMonth() - i, 1);
+            const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            prePayments.push({ id: Date.now() + i, month: ym, paid: true, paidDate: "auto", expenseId: null, autoMarked: true });
+          }
+        }
+
         const bill = {
-          id: Date.now() + 1, concept: loanForm.name, bank: loanForm.bank,
-          amount: loanForm.actualPayment ? +loanForm.actualPayment : Math.round(buildLoanAmortization(+loanForm.principal, +loanForm.rate, +loanForm.totalInstallments).pmt),
-          dueDay: +loanForm.dueDay, category: "Otros", payMethod: "Transferencia",
-          recurrence: "mensual", color: C.accentPurple, payments: [], fromLoanId: newLoan.id,
+          id: Date.now() + 1000, concept: loanForm.name, bank: loanForm.bank,
+          amount, dueDay: +loanForm.dueDay, category: "Otros", payMethod: "Transferencia",
+          recurrence: "mensual", color: C.accentPurple, payments: prePayments, fromLoanId: newLoan.id,
+          nextPaymentDate: loanForm.nextPaymentDate || null,
         };
         newState.fixedBills = [...(s.fixedBills || []), bill];
       }
       return newState;
     });
 
-    setLoanForm({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", addToCalendar: true });
+    setLoanForm({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", addToCalendar: true });
     setShowLoanForm(false);
   };
 
@@ -905,6 +943,13 @@ const Deudas = ({ state, setState }) => {
               <div><Label>Total cuotas</Label><input type="number" value={editLoanForm.totalInstallments} onChange={e => setEditLoanForm(f => ({ ...f, totalInstallments: e.target.value }))} style={inputSt} /></div>
               <div><Label>Cuota real que paga ($)</Label><input type="number" placeholder="Dejar vacío para usar la calculada" value={editLoanForm.actualPayment} onChange={e => setEditLoanForm(f => ({ ...f, actualPayment: e.target.value }))} style={inputSt} /></div>
               <div><Label>Día de pago mensual</Label><input type="number" min="1" max="31" value={editLoanForm.dueDay} onChange={e => setEditLoanForm(f => ({ ...f, dueDay: e.target.value }))} style={inputSt} /></div>
+              <div>
+                <Label>Próxima fecha de pago</Label>
+                <DatePicker value={editLoanForm.nextPaymentDate || getToday()} onChange={v => setEditLoanForm(f => ({ ...f, nextPaymentDate: v }))} />
+                <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+                  💡 Los meses anteriores a esta fecha quedarán marcados como pagados en el calendario.
+                </div>
+              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={saveEditLoan} style={btnPrimary(C.accentPurple)}>Guardar cambios</button>
                 <button onClick={() => setEditLoan(null)} style={btnGhost}>Cancelar</button>
@@ -1008,8 +1053,17 @@ const Deudas = ({ state, setState }) => {
               <div style={{ background: C.accentBlue + "08", borderRadius: 10, padding: 12 }}>
                 <div style={{ color: C.accentBlue, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>📅 Calendario de pagos</div>
                 <div><Label>Día de pago mensual (1-31)</Label>
-                  <input type="number" min="1" max="31" placeholder="Ej: 5" value={loanForm.dueDay} onChange={e => setLoanForm(f => ({ ...f, dueDay: e.target.value }))} style={inputSt} />
+                  <input type="number" min="1" max="31" placeholder="Ej: 20" value={loanForm.dueDay} onChange={e => setLoanForm(f => ({ ...f, dueDay: e.target.value }))} style={inputSt} />
                 </div>
+                {loanForm.dueDay && (
+                  <div style={{ marginTop: 10 }}>
+                    <Label>Próxima fecha de pago</Label>
+                    <DatePicker value={loanForm.nextPaymentDate || getToday()} onChange={v => setLoanForm(f => ({ ...f, nextPaymentDate: v }))} />
+                    <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+                      💡 Indica cuándo es la <strong>próxima</strong> cuota a pagar. Los meses anteriores quedarán marcados automáticamente como pagados en el calendario.
+                    </div>
+                  </div>
+                )}
                 {loanForm.dueDay && (
                   <button onClick={() => setLoanForm(f => ({ ...f, addToCalendar: !f.addToCalendar }))} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "9px 12px", borderRadius: 8, border: `1.5px solid ${loanForm.addToCalendar ? C.accentBlue : C.border}`, background: loanForm.addToCalendar ? C.accentBlue + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
                     <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${loanForm.addToCalendar ? C.accentBlue : C.border}`, background: loanForm.addToCalendar ? C.accentBlue : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1045,7 +1099,7 @@ const Deudas = ({ state, setState }) => {
                 <div>
                   <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div>
                   <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name} · Tasa {loan.rate}% mensual</div>
-                  {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}</div>}
+                  {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}{loan.nextPaymentDate ? ` · Próximo pago: ${loan.nextPaymentDate}` : ""}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️ Editar</button>
@@ -1357,7 +1411,22 @@ const Calendario = ({ state, setState }) => {
     });
     setConfirmPay(null);
   };
-  const undoPaid = (billId) => { const bill = state.fixedBills.find(b => b.id === billId); if (!bill) return; const payment = getPayment(bill); if (!payment?.paid) return; setState(s => ({ ...s, expenses: s.expenses.filter(e => e.id !== payment.expenseId), budgets: s.budgets.map(b => b.category === bill.category ? { ...b, spent: Math.max(0, b.spent - bill.amount) } : b), fixedBills: s.fixedBills.map(b => b.id === billId ? { ...b, payments: b.payments.filter(p => p.month !== viewMonth) } : b) })); };
+  const undoPaid = (billId) => {
+    const bill = state.fixedBills.find(b => b.id === billId);
+    if (!bill) return;
+    const payment = getPayment(bill);
+    if (!payment?.paid) return;
+    // Don't allow undoing auto-marked (pre-populated) payments
+    if (payment.autoMarked) return;
+    setState(s => ({
+      ...s,
+      expenses: s.expenses.filter(e => e.id !== payment.expenseId),
+      budgets: s.budgets.map(b => b.category === bill.category ? { ...b, spent: Math.max(0, b.spent - bill.amount) } : b),
+      fixedBills: s.fixedBills.map(b => b.id === billId ? { ...b, payments: b.payments.filter(p => p.month !== viewMonth) } : b),
+      // Undo loan installment if linked
+      ...(bill.fromLoanId ? { loans: s.loans.map(l => l.id === bill.fromLoanId ? { ...l, paidInstallments: Math.max(0, l.paidInstallments - 1) } : l) } : {}),
+    }));
+  };
   const saveBill = () => { if (!form.concept || !form.amount) return; if (editBill) { setState(s => ({ ...s, fixedBills: s.fixedBills.map(b => b.id === editBill ? { ...b, ...form, amount: +form.amount, dueDay: +form.dueDay } : b) })); setEditBill(null); } else { setState(s => ({ ...s, fixedBills: [...s.fixedBills, { id: Date.now(), ...form, amount: +form.amount, dueDay: +form.dueDay, payments: [] }] })); } setForm({ concept: "", amount: "", dueDay: "1", category: DEFAULT_CATS[0], payMethod: "Transferencia", recurrence: "mensual", color: BILL_COLORS[0] }); setShowForm(false); };
   const startEdit = (bill) => { setForm({ concept: bill.concept, amount: String(bill.amount), dueDay: String(bill.dueDay), category: bill.category, payMethod: bill.payMethod, recurrence: bill.recurrence, color: bill.color }); setEditBill(bill.id); setShowForm(true); };
   const deleteBill = (id) => setState(s => ({ ...s, fixedBills: s.fixedBills.filter(b => b.id !== id) }));
@@ -1426,10 +1495,18 @@ const Calendario = ({ state, setState }) => {
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                 <div style={{ color: isPaid ? C.accent : C.text, fontWeight: 900, fontSize: 16 }}>{fmt(bill.amount)}</div>
-                {isPaid ? <Tag color={C.accent}>✓ Pagado {payment.paidDate?.slice(5)}</Tag> : level && alertSt ? <Tag color={alertSt.color}>{alertSt.label}</Tag> : !isCurrentMonth ? <Tag color={C.textSub}>Pendiente</Tag> : <Tag color={C.textMuted}>En {daysLeft}d</Tag>}
+                {isPaid
+                  ? payment?.autoMarked
+                    ? <Tag color={C.textMuted}>Cuota anterior</Tag>
+                    : <Tag color={C.accent}>✓ Pagado {payment.paidDate?.slice(5)}</Tag>
+                  : level && alertSt ? <Tag color={alertSt.color}>{alertSt.label}</Tag>
+                  : !isCurrentMonth ? <Tag color={C.textSub}>Pendiente</Tag>
+                  : <Tag color={C.textMuted}>En {daysLeft}d</Tag>
+                }
               </div>
             </div>
-            {isPaid && <div style={{ background: C.accent + "10", border: `1px solid ${C.accent}33`, borderRadius: 8, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>✅ Registrado en gastos y presupuesto</div><div style={{ color: C.textMuted, fontSize: 11 }}>Presupuesto de {bill.category} actualizado</div></div><button onClick={() => undoPaid(bill.id)} style={{ background: "transparent", border: `1px solid ${C.accentRed}44`, color: C.accentRed, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Deshacer</button></div>}
+            {isPaid && !payment?.autoMarked && <div style={{ background: C.accent + "10", border: `1px solid ${C.accent}33`, borderRadius: 8, padding: "8px 12px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>✅ Registrado en gastos y presupuesto</div><div style={{ color: C.textMuted, fontSize: 11 }}>Presupuesto de {bill.category} actualizado</div></div><button onClick={() => undoPaid(bill.id)} style={{ background: "transparent", border: `1px solid ${C.accentRed}44`, color: C.accentRed, borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Deshacer</button></div>}
+            {isPaid && payment?.autoMarked && <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}><div style={{ color: C.textMuted, fontSize: 12, fontWeight: 600 }}>📋 Marcado como pagado automáticamente (cuota anterior al registro)</div></div>}
             {!isPaid && level && level !== "ok" && isCurrentMonth && <div style={{ background: alertSt.bg, border: `1px solid ${alertSt.color}33`, borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}><div style={{ color: alertSt.color, fontSize: 12, fontWeight: 700 }}>{level === "vencido" ? `⚠️ Venció hace ${Math.abs(daysLeft)} día(s)` : level === "hoy" ? "🔴 Vence hoy — ¡paga cuanto antes!" : level === "urgente" ? `🟠 Vence en ${daysLeft} día(s)` : `🟡 Vence en ${daysLeft} días`}</div></div>}
             <div style={{ display: "flex", gap: 8 }}>
               {!isPaid && <button onClick={() => setConfirmPay(bill.id)} style={{ flex: 1, padding: "9px", borderRadius: 10, border: `1.5px solid ${bill.color}55`, background: bill.color + "10", color: bill.color, fontWeight: 700, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>✓ Marcar como pagado</button>}
