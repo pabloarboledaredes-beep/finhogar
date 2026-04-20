@@ -820,7 +820,7 @@ const Deudas = ({ state, setState }) => {
         const isExtra = amt > effectivePmt;
 
         return (
-          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
             <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                 <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago</div>
@@ -902,7 +902,7 @@ const Deudas = ({ state, setState }) => {
 
       {/* Edit Purchase Modal */}
       {editPurchase && (
-        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
           <div style={{
             background: C.surface, borderRadius: "20px 20px 0 0", padding: 24,
             width: "100%", maxWidth: 520, maxHeight: "85vh", overflowY: "auto",
@@ -933,7 +933,7 @@ const Deudas = ({ state, setState }) => {
 
       {/* Edit Loan Modal */}
       {editLoan && (
-        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 0 }}>
+        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 0 }}>
           <div style={{
             background: C.surface, borderRadius: "20px 20px 0 0", padding: 24,
             width: "100%", maxWidth: 520,
@@ -1494,7 +1494,7 @@ const Calendario = ({ state, setState }) => {
         </Box>
       )}
       {confirmPay !== null && (() => { const bill = state.fixedBills.find(b => b.id === confirmPay); if (!bill) return null; return (
-        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ background: C.surface, border: `1.5px solid ${bill.color}66`, borderRadius: 20, padding: 24, maxWidth: 340, width: "100%" }}>
             <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>✅</div>
             <div style={{ color: C.text, fontWeight: 800, fontSize: 16, textAlign: "center", marginBottom: 6 }}>Confirmar pago</div>
