@@ -820,9 +820,12 @@ const Deudas = ({ state, setState }) => {
         const isExtra = amt > effectivePmt;
 
         return (
-          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 360, width: "100%", border: `1.5px solid ${C.accentPurple}44` }}>
-              <div style={{ color: C.text, fontWeight: 800, fontSize: 17, marginBottom: 4 }}>💸 Registrar Pago</div>
+          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago</div>
+                <button onClick={() => setPayModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+              </div>
               <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>{loan.name} · cuota #{loan.paidInstallments + 1}</div>
 
               <Label>¿Cuánto pagaste?</Label>
@@ -899,9 +902,17 @@ const Deudas = ({ state, setState }) => {
 
       {/* Edit Purchase Modal */}
       {editPurchase && (
-        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 360, width: "100%", border: `1.5px solid ${C.accentOrange}44` }}>
-            <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17, marginBottom: 16 }}>✏️ Editar Compra</div>
+        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div style={{
+            background: C.surface, borderRadius: "20px 20px 0 0", padding: 24,
+            width: "100%", maxWidth: 520, maxHeight: "85vh", overflowY: "auto",
+            border: `1.5px solid ${C.accentOrange}44`,
+            paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>✏️ Editar Compra</div>
+              <button onClick={() => setEditPurchase(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div><Label>Descripción</Label><input value={editPurchaseForm.desc} onChange={e => setEditPurchaseForm(f => ({ ...f, desc: e.target.value }))} style={inputSt} /></div>
               <div><Label>Valor ($)</Label><input type="number" value={editPurchaseForm.amount} onChange={e => setEditPurchaseForm(f => ({ ...f, amount: e.target.value }))} style={inputSt} /></div>
@@ -911,9 +922,9 @@ const Deudas = ({ state, setState }) => {
                 <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${editPurchaseForm.zeroInterest ? C.accent : C.border}`, background: editPurchaseForm.zeroInterest ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{editPurchaseForm.zeroInterest && <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
                 <span style={{ color: editPurchaseForm.zeroInterest ? C.accent : C.textMuted, fontWeight: 700, fontSize: 13 }}>Sin intereses (0%)</span>
               </button>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={saveEditPurchase} style={btnPrimary(C.accentOrange)}>Guardar</button>
-                <button onClick={() => setEditPurchase(null)} style={btnGhost}>Cancelar</button>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={saveEditPurchase} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>Guardar</button>
+                <button onClick={() => setEditPurchase(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
               </div>
             </div>
           </div>
@@ -922,9 +933,18 @@ const Deudas = ({ state, setState }) => {
 
       {/* Edit Loan Modal */}
       {editLoan && (
-        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 360, width: "100%", border: `1.5px solid ${C.accentPurple}44`, overflowY: "auto", maxHeight: "90vh" }}>
-            <div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 17, marginBottom: 16 }}>✏️ Editar Crédito</div>
+        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 0 }}>
+          <div style={{
+            background: C.surface, borderRadius: "20px 20px 0 0", padding: 24,
+            width: "100%", maxWidth: 520,
+            maxHeight: "90vh", overflowY: "auto",
+            border: `1.5px solid ${C.accentPurple}44`,
+            paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 17 }}>✏️ Editar Crédito</div>
+              <button onClick={() => setEditLoan(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div><Label>Nombre</Label><input value={editLoanForm.name} onChange={e => setEditLoanForm(f => ({ ...f, name: e.target.value }))} style={inputSt} /></div>
               <div><Label>Entidad bancaria</Label><input value={editLoanForm.bank} onChange={e => setEditLoanForm(f => ({ ...f, bank: e.target.value }))} style={inputSt} /></div>
@@ -950,9 +970,9 @@ const Deudas = ({ state, setState }) => {
                   💡 Los meses anteriores a esta fecha quedarán marcados como pagados en el calendario.
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={saveEditLoan} style={btnPrimary(C.accentPurple)}>Guardar cambios</button>
-                <button onClick={() => setEditLoan(null)} style={btnGhost}>Cancelar</button>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={saveEditLoan} style={{ ...btnPrimary(C.accentPurple), flex: 1, padding: "13px" }}>Guardar cambios</button>
+                <button onClick={() => setEditLoan(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
               </div>
             </div>
           </div>
