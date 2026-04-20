@@ -257,6 +257,17 @@ const Dashboard = ({ state }) => {
           </Box>
         ))}
       </div>
+      {state.initialBalances && (
+        <Box style={{ borderColor: C.accentBlue + "44", background: C.accentBlue + "06" }}>
+          <div style={{ color: C.accentBlue, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>💵 LIQUIDEZ DISPONIBLE</div>
+          <div style={{ color: C.text, fontSize: 22, fontWeight: 900 }}>{fmt(state.initialBalances.efectivo + state.initialBalances.cuenta1 + state.initialBalances.cuenta2)}</div>
+          <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+            {state.initialBalances.efectivo > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>💵 Efectivo: {fmt(state.initialBalances.efectivo)}</span>}
+            {state.initialBalances.cuenta1 > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>🏦 {state.initialBalances.cuenta1Name}: {fmt(state.initialBalances.cuenta1)}</span>}
+          </div>
+          <div style={{ color: C.textMuted, fontSize: 10, marginTop: 4 }}>Registrado el {state.initialBalances.date} · Actualiza en ⚙️ Config → Saldos</div>
+        </Box>
+      )}
       <Box>
         <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Presupuestos</div>
         {state.budgets.slice(0, 5).map(b => (
@@ -450,7 +461,7 @@ const Gastos = ({ state, setState }) => {
             <div><Label>Método de pago</Label><select value={expForm.payMethod} onChange={e => setExpForm(f => ({ ...f, payMethod: e.target.value, cardId: "", installments: 1 }))} style={inputSt}>{PAY_METHODS.map(p => <option key={p}>{p}</option>)}</select></div>
             {expForm.payMethod === "Tarjeta de crédito" && (<>
               <div><Label>Tarjeta</Label><select value={expForm.cardId} onChange={e => setExpForm(f => ({ ...f, cardId: e.target.value }))} style={inputSt}><option value="">Selecciona tarjeta...</option>{state.cards.map(c => { const h = state.members.find(m => m.id === c.holder); return <option key={c.id} value={c.id}>{c.name} ({h?.name})</option>; })}</select></div>
-              <div><Label>Cuotas</Label><select value={expForm.installments} onChange={e => setExpForm(f => ({ ...f, installments: +e.target.value }))} style={inputSt}>{[1,2,3,6,9,12,18,24,36].map(n => <option key={n} value={n}>{n === 1 ? "1 cuota (contado)" : `${n} cuotas`}</option>)}</select></div>
+              <div><Label>Cuotas (1 a 36)</Label><input type="number" min="1" max="36" value={expForm.installments} onChange={e => setExpForm(f => ({ ...f, installments: Math.min(36, Math.max(1, +e.target.value || 1)) }))} style={inputSt} /></div>
               {expForm.installments > 1 && (
                 <button
                   onClick={() => setExpForm(f => ({ ...f, zeroInterest: !f.zeroInterest }))}
@@ -568,6 +579,14 @@ const Deudas = ({ state, setState }) => {
   const [payAmount, setPayAmount] = useState("");
   const [payStrategy, setPayStrategy] = useState("plazo"); // "plazo" | "deuda"
 
+  // Edit purchase modal
+  const [editPurchase, setEditPurchase] = useState(null); // { cardId, purchase }
+  const [editPurchaseForm, setEditPurchaseForm] = useState({ desc: "", amount: "", installments: 1, zeroInterest: false, date: "" });
+
+  // Edit loan modal
+  const [editLoan, setEditLoan] = useState(null);
+  const [editLoanForm, setEditLoanForm] = useState({ name: "", bank: "", principal: "", rate: "", totalInstallments: "", actualPayment: "", dueDay: "", extraAmount: "" });
+
   const cardSummary = useMemo(() => state.cards.map(card => { const ap = card.purchases.filter(p => p.paidInstallments < p.installments); const currentDue = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0); const totalBalance = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.balance || 0) + (rows[p.paidInstallments]?.capital || 0); }, 0); return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) }; }), [state.cards]);
 
   const totalCardDue = cardSummary.reduce((s, c) => s + c.currentDue, 0);
@@ -577,6 +596,64 @@ const Deudas = ({ state, setState }) => {
   }, 0);
 
   const payPurchaseInstallment = (cardId, purchaseId) => setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: c.purchases.map(p => p.id === purchaseId ? { ...p, paidInstallments: Math.min(p.paidInstallments + 1, p.installments) } : p) } : c) }));
+
+  const openEditPurchase = (cardId, purchase) => {
+    setEditPurchase({ cardId, purchaseId: purchase.id });
+    setEditPurchaseForm({ desc: purchase.desc, amount: String(purchase.amount), installments: purchase.installments, zeroInterest: !!purchase.zeroInterest, date: purchase.date });
+  };
+
+  const saveEditPurchase = () => {
+    if (!editPurchase) return;
+    setState(s => ({
+      ...s,
+      cards: s.cards.map(c => c.id === editPurchase.cardId ? {
+        ...c,
+        purchases: c.purchases.map(p => p.id === editPurchase.purchaseId ? {
+          ...p,
+          desc: editPurchaseForm.desc,
+          amount: +editPurchaseForm.amount,
+          installments: Math.min(36, Math.max(1, +editPurchaseForm.installments)),
+          zeroInterest: editPurchaseForm.zeroInterest,
+          date: editPurchaseForm.date,
+          paidInstallments: Math.min(p.paidInstallments, +editPurchaseForm.installments),
+        } : p)
+      } : c)
+    }));
+    setEditPurchase(null);
+  };
+
+  const openEditLoan = (loan) => {
+    setEditLoan(loan.id);
+    setEditLoanForm({ name: loan.name, bank: loan.bank, principal: String(loan.principal), rate: String(loan.rate), totalInstallments: String(loan.totalInstallments), actualPayment: loan.actualPayment ? String(loan.actualPayment) : "", dueDay: loan.dueDay || "", extraAmount: "" });
+  };
+
+  const saveEditLoan = () => {
+    if (!editLoan) return;
+    const extra = +editLoanForm.extraAmount || 0;
+    setState(s => {
+      const loan = s.loans.find(l => l.id === editLoan);
+      const newPrincipal = +editLoanForm.principal + extra;
+      const updatedLoan = {
+        ...loan,
+        name: editLoanForm.name,
+        bank: editLoanForm.bank,
+        principal: newPrincipal,
+        rate: +editLoanForm.rate,
+        totalInstallments: +editLoanForm.totalInstallments,
+        actualPayment: editLoanForm.actualPayment ? +editLoanForm.actualPayment : null,
+        dueDay: editLoanForm.dueDay || null,
+      };
+      // Update linked calendar bill if exists
+      const updatedBills = (s.fixedBills || []).map(b => b.fromLoanId === editLoan ? {
+        ...b,
+        concept: editLoanForm.name,
+        dueDay: editLoanForm.dueDay ? +editLoanForm.dueDay : b.dueDay,
+        amount: editLoanForm.actualPayment ? +editLoanForm.actualPayment : Math.round(buildLoanAmortization(newPrincipal, +editLoanForm.rate, +editLoanForm.totalInstallments).pmt),
+      } : b);
+      return { ...s, loans: s.loans.map(l => l.id === editLoan ? updatedLoan : l), fixedBills: updatedBills };
+    });
+    setEditLoan(null);
+  };
 
   const openPayModal = (loan, pmt, currentBalance) => {
     setPayModal({ loanId: loan.id, calcPmt: pmt, currentBalance });
@@ -782,6 +859,61 @@ const Deudas = ({ state, setState }) => {
         );
       })()}
 
+      {/* Edit Purchase Modal */}
+      {editPurchase && (
+        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 360, width: "100%", border: `1.5px solid ${C.accentOrange}44` }}>
+            <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17, marginBottom: 16 }}>✏️ Editar Compra</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div><Label>Descripción</Label><input value={editPurchaseForm.desc} onChange={e => setEditPurchaseForm(f => ({ ...f, desc: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Valor ($)</Label><input type="number" value={editPurchaseForm.amount} onChange={e => setEditPurchaseForm(f => ({ ...f, amount: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Cuotas (1 a 36)</Label><input type="number" min="1" max="36" value={editPurchaseForm.installments} onChange={e => setEditPurchaseForm(f => ({ ...f, installments: Math.min(36, Math.max(1, +e.target.value || 1)) }))} style={inputSt} /></div>
+              <div><Label>Fecha</Label><DatePicker value={editPurchaseForm.date || getToday()} onChange={v => setEditPurchaseForm(f => ({ ...f, date: v }))} /></div>
+              <button onClick={() => setEditPurchaseForm(f => ({ ...f, zeroInterest: !f.zeroInterest }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${editPurchaseForm.zeroInterest ? C.accent : C.border}`, background: editPurchaseForm.zeroInterest ? C.accent + "10" : "transparent", cursor: "pointer", fontFamily: "inherit" }}>
+                <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${editPurchaseForm.zeroInterest ? C.accent : C.border}`, background: editPurchaseForm.zeroInterest ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{editPurchaseForm.zeroInterest && <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
+                <span style={{ color: editPurchaseForm.zeroInterest ? C.accent : C.textMuted, fontWeight: 700, fontSize: 13 }}>Sin intereses (0%)</span>
+              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={saveEditPurchase} style={btnPrimary(C.accentOrange)}>Guardar</button>
+                <button onClick={() => setEditPurchase(null)} style={btnGhost}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Loan Modal */}
+      {editLoan && (
+        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 360, width: "100%", border: `1.5px solid ${C.accentPurple}44`, overflowY: "auto", maxHeight: "90vh" }}>
+            <div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 17, marginBottom: 16 }}>✏️ Editar Crédito</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div><Label>Nombre</Label><input value={editLoanForm.name} onChange={e => setEditLoanForm(f => ({ ...f, name: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Entidad bancaria</Label><input value={editLoanForm.bank} onChange={e => setEditLoanForm(f => ({ ...f, bank: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Monto original del crédito ($)</Label><input type="number" value={editLoanForm.principal} onChange={e => setEditLoanForm(f => ({ ...f, principal: e.target.value }))} style={inputSt} /></div>
+              <div style={{ background: C.accentPurple + "08", borderRadius: 10, padding: 12 }}>
+                <div style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>¿Solicitaste más dinero sobre este crédito?</div>
+                <Label>Dinero adicional desembolsado ($)</Label>
+                <input type="number" placeholder="0 — si no hubo adición" value={editLoanForm.extraAmount} onChange={e => setEditLoanForm(f => ({ ...f, extraAmount: e.target.value }))} style={inputSt} />
+                {editLoanForm.extraAmount && +editLoanForm.extraAmount > 0 && (
+                  <div style={{ color: C.accentPurple, fontSize: 12, marginTop: 6, fontWeight: 600 }}>
+                    Nuevo saldo total: {fmt(+editLoanForm.principal + +editLoanForm.extraAmount)}
+                  </div>
+                )}
+              </div>
+              <div><Label>Tasa mensual (%)</Label><input type="number" step="0.01" value={editLoanForm.rate} onChange={e => setEditLoanForm(f => ({ ...f, rate: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Total cuotas</Label><input type="number" value={editLoanForm.totalInstallments} onChange={e => setEditLoanForm(f => ({ ...f, totalInstallments: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Cuota real que paga ($)</Label><input type="number" placeholder="Dejar vacío para usar la calculada" value={editLoanForm.actualPayment} onChange={e => setEditLoanForm(f => ({ ...f, actualPayment: e.target.value }))} style={inputSt} /></div>
+              <div><Label>Día de pago mensual</Label><input type="number" min="1" max="31" value={editLoanForm.dueDay} onChange={e => setEditLoanForm(f => ({ ...f, dueDay: e.target.value }))} style={inputSt} /></div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={saveEditLoan} style={btnPrimary(C.accentPurple)}>Guardar cambios</button>
+                <button onClick={() => setEditLoan(null)} style={btnGhost}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Control de Deudas</div>
         {tab === "loans" && <button onClick={() => setShowLoanForm(!showLoanForm)} style={btnPrimary(C.accentPurple)}>+ Crédito</button>}
@@ -816,7 +948,10 @@ const Deudas = ({ state, setState }) => {
               <div key={p.id} style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 10, border: `1.5px solid ${isDone ? C.accent + "44" : C.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>{p.desc} {isDone && "✓"}{p.zeroInterest && <Tag color={C.accent}>0% interés</Tag>}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
-                  <button onClick={() => deletePurchase(card.id, p.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => openEditPurchase(card.id, p)} style={{ background: C.accent + "12", border: `1px solid ${C.accent}33`, color: C.accent, borderRadius: 7, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️</button>
+                    <button onClick={() => deletePurchase(card.id, p.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+                  </div>
                 </div>
                 {!isDone && (<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10, marginBottom: 10 }}>
                   <div style={{ background: C.surface, borderRadius: 8, padding: 8, textAlign: "center", border: `1px solid ${C.border}` }}><div style={{ color: C.textMuted, fontSize: 10 }}>Próx cuota</div><div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 13 }}>{fmt(nextRow?.pmt || 0)}</div></div>
@@ -912,7 +1047,10 @@ const Deudas = ({ state, setState }) => {
                   <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name} · Tasa {loan.rate}% mensual</div>
                   {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}</div>}
                 </div>
-                <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️ Editar</button>
+                  <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
@@ -1183,7 +1321,42 @@ const Calendario = ({ state, setState }) => {
   const prevMonth = () => { const [y,m] = viewMonth.split("-").map(Number); const d = new Date(y,m-2,1); setViewMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); };
   const nextMonth = () => { const [y,m] = viewMonth.split("-").map(Number); const d = new Date(y,m,1); setViewMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); };
   const getPayment = (bill) => bill.payments.find(p => p.month === viewMonth);
-  const markPaid = (billId) => { const bill = state.fixedBills.find(b => b.id === billId); if (!bill) return; const newExpenseId = Date.now(); const today = getToday(); setState(s => ({ ...s, expenses: [{ id: newExpenseId, memberId: s.members[0]?.id || 1, category: bill.category, desc: `${bill.concept} (pago fijo)`, amount: bill.amount, payMethod: bill.payMethod, cardId: null, installments: 1, date: today, fromFixedBill: true }, ...s.expenses], budgets: s.budgets.map(b => b.category === bill.category ? { ...b, spent: b.spent + bill.amount } : b), fixedBills: s.fixedBills.map(b => b.id === billId ? { ...b, payments: [...b.payments.filter(p => p.month !== viewMonth), { id: newExpenseId, month: viewMonth, paid: true, paidDate: today, expenseId: newExpenseId }] } : b) })); setConfirmPay(null); };
+  const markPaid = (billId) => {
+    const bill = state.fixedBills.find(b => b.id === billId);
+    if (!bill) return;
+    const newExpenseId = Date.now();
+    const today = getToday();
+    setState(s => {
+      let newState = {
+        ...s,
+        expenses: [{ id: newExpenseId, memberId: s.members[0]?.id || 1, category: bill.category, desc: `${bill.concept} (pago fijo)`, amount: bill.amount, payMethod: bill.payMethod, cardId: null, installments: 1, date: today, fromFixedBill: true }, ...s.expenses],
+        budgets: s.budgets.map(b => b.category === bill.category ? { ...b, spent: b.spent + bill.amount } : b),
+        fixedBills: s.fixedBills.map(b => b.id === billId ? { ...b, payments: [...b.payments.filter(p => p.month !== viewMonth), { id: newExpenseId, month: viewMonth, paid: true, paidDate: today, expenseId: newExpenseId }] } : b),
+      };
+
+      // If linked to a loan → advance paidInstallments
+      if (bill.fromLoanId) {
+        newState.loans = s.loans.map(l => l.id === bill.fromLoanId
+          ? { ...l, paidInstallments: Math.min(l.paidInstallments + 1, l.totalInstallments) }
+          : l
+        );
+      }
+
+      // If linked to a card (fromCardId + fromPurchaseId) → advance purchase installment
+      if (bill.fromCardId && bill.fromPurchaseId) {
+        newState.cards = s.cards.map(c => c.id === bill.fromCardId ? {
+          ...c,
+          purchases: c.purchases.map(p => p.id === bill.fromPurchaseId
+            ? { ...p, paidInstallments: Math.min(p.paidInstallments + 1, p.installments) }
+            : p
+          )
+        } : c);
+      }
+
+      return newState;
+    });
+    setConfirmPay(null);
+  };
   const undoPaid = (billId) => { const bill = state.fixedBills.find(b => b.id === billId); if (!bill) return; const payment = getPayment(bill); if (!payment?.paid) return; setState(s => ({ ...s, expenses: s.expenses.filter(e => e.id !== payment.expenseId), budgets: s.budgets.map(b => b.category === bill.category ? { ...b, spent: Math.max(0, b.spent - bill.amount) } : b), fixedBills: s.fixedBills.map(b => b.id === billId ? { ...b, payments: b.payments.filter(p => p.month !== viewMonth) } : b) })); };
   const saveBill = () => { if (!form.concept || !form.amount) return; if (editBill) { setState(s => ({ ...s, fixedBills: s.fixedBills.map(b => b.id === editBill ? { ...b, ...form, amount: +form.amount, dueDay: +form.dueDay } : b) })); setEditBill(null); } else { setState(s => ({ ...s, fixedBills: [...s.fixedBills, { id: Date.now(), ...form, amount: +form.amount, dueDay: +form.dueDay, payments: [] }] })); } setForm({ concept: "", amount: "", dueDay: "1", category: DEFAULT_CATS[0], payMethod: "Transferencia", recurrence: "mensual", color: BILL_COLORS[0] }); setShowForm(false); };
   const startEdit = (bill) => { setForm({ concept: bill.concept, amount: String(bill.amount), dueDay: String(bill.dueDay), category: bill.category, payMethod: bill.payMethod, recurrence: bill.recurrence, color: bill.color }); setEditBill(bill.id); setShowForm(true); };
@@ -1236,7 +1409,7 @@ const Calendario = ({ state, setState }) => {
           <div style={{ background: C.surface, border: `1.5px solid ${bill.color}66`, borderRadius: 20, padding: 24, maxWidth: 340, width: "100%" }}>
             <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>✅</div>
             <div style={{ color: C.text, fontWeight: 800, fontSize: 16, textAlign: "center", marginBottom: 6 }}>Confirmar pago</div>
-            <div style={{ color: C.textMuted, fontSize: 13, textAlign: "center", marginBottom: 18, lineHeight: 1.6 }}>¿Marcar <strong style={{ color: bill.color }}>{bill.concept}</strong> como pagado?<br />Se registrará <strong style={{ color: C.accent }}>{fmt(bill.amount)}</strong> en tus gastos<br />y se descontará del presupuesto de <strong>{bill.category}</strong>.</div>
+            <div style={{ color: C.textMuted, fontSize: 13, textAlign: "center", marginBottom: 18, lineHeight: 1.6 }}>¿Marcar <strong style={{ color: bill.color }}>{bill.concept}</strong> como pagado?<br />Se registrará <strong style={{ color: C.accent }}>{fmt(bill.amount)}</strong> en gastos<br />y se descontará del presupuesto de <strong>{bill.category}</strong>.{bill.fromLoanId && <><br /><span style={{ color: C.accentPurple, fontWeight: 700 }}>🏦 Avanzará una cuota del crédito vinculado.</span></>}{bill.fromCardId && <><br /><span style={{ color: C.accentOrange, fontWeight: 700 }}>💳 Avanzará una cuota de la compra vinculada.</span></>}</div>
             <div style={{ display: "flex", gap: 10 }}><button onClick={() => markPaid(confirmPay)} style={{ ...btnPrimary(), flex: 1 }}>✓ Sí, está pagado</button><button onClick={() => setConfirmPay(null)} style={{ ...btnGhost, flex: 1 }}>Cancelar</button></div>
           </div>
         </div>
@@ -1463,6 +1636,33 @@ const Configuracion = ({ state, setState }) => {
   const [showCardForm, setShowCardForm] = useState(false);
   const [editCardId, setEditCardId] = useState(null);
   const [cardForm, setCardForm] = useState({ name: "", holder: 1, limit: "", rate: "", dueDate: "" });
+
+  // Saldos iniciales
+  const [saldos, setSaldos] = useState({
+    efectivo: String(state.initialBalances?.efectivo || ""),
+    cuenta1: String(state.initialBalances?.cuenta1 || ""),
+    cuenta1Name: state.initialBalances?.cuenta1Name || "Cuenta bancaria",
+    cuenta2: String(state.initialBalances?.cuenta2 || ""),
+    cuenta2Name: state.initialBalances?.cuenta2Name || "Cuenta bancaria 2",
+    saved: !!state.initialBalances,
+  });
+
+  const saveSaldos = () => {
+    setState(s => ({
+      ...s,
+      initialBalances: {
+        efectivo: +saldos.efectivo || 0,
+        cuenta1: +saldos.cuenta1 || 0,
+        cuenta1Name: saldos.cuenta1Name || "Cuenta bancaria",
+        cuenta2: +saldos.cuenta2 || 0,
+        cuenta2Name: saldos.cuenta2Name || "Cuenta bancaria 2",
+        date: getToday(),
+      }
+    }));
+    setSaldos(f => ({ ...f, saved: true }));
+  };
+
+  const totalLiquidez = (+saldos.efectivo || 0) + (+saldos.cuenta1 || 0) + (+saldos.cuenta2 || 0);
   const EMOJIS = ["👨","👩","👦","👧","🧑","👴","👵","🧔","👱","🧓"];
   const MEMBER_COLORS = [C.accentBlue, C.accentPink, C.accentPurple, C.accentOrange, C.accentYellow, C.accent];
 
@@ -1511,9 +1711,10 @@ const Configuracion = ({ state, setState }) => {
       </div>
 
       {/* Tab selector */}
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {tabBtn("usuarios", "Usuarios", "👥")}
         {tabBtn("tarjetas", "Tarjetas", "💳")}
+        {tabBtn("saldos", "Saldos", "🏦")}
       </div>
 
       {/* ── PESTAÑA USUARIOS ── */}
@@ -1652,6 +1853,87 @@ const Configuracion = ({ state, setState }) => {
               </Box>
             );
           })}
+        </div>
+      )}
+
+      {/* ── PESTAÑA SALDOS INICIALES ── */}
+      {configTab === "saldos" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Box style={{ background: C.accentBlue + "08", borderColor: C.accentBlue + "33" }}>
+            <div style={{ color: C.accentBlue, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>🏦 ¿Para qué sirven los saldos iniciales?</div>
+            <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.7 }}>
+              Registra cuánto dinero tienen disponible hoy en efectivo y cuentas bancarias. Esto le da a la app un punto de partida real para calcular la liquidez total del hogar.
+            </div>
+          </Box>
+
+          {state.initialBalances && (
+            <Box style={{ borderColor: C.accent + "44", background: C.accent + "06" }}>
+              <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>✅ Saldos registrados el {state.initialBalances.date}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.textMuted, fontSize: 13 }}>💵 Efectivo</span>
+                  <span style={{ color: C.text, fontWeight: 700 }}>{fmt(state.initialBalances.efectivo)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.textMuted, fontSize: 13 }}>🏦 {state.initialBalances.cuenta1Name}</span>
+                  <span style={{ color: C.text, fontWeight: 700 }}>{fmt(state.initialBalances.cuenta1)}</span>
+                </div>
+                {state.initialBalances.cuenta2 > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: C.textMuted, fontSize: 13 }}>🏦 {state.initialBalances.cuenta2Name}</span>
+                    <span style={{ color: C.text, fontWeight: 700 }}>{fmt(state.initialBalances.cuenta2)}</span>
+                  </div>
+                )}
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.text, fontWeight: 700 }}>Total liquidez</span>
+                  <span style={{ color: C.accent, fontWeight: 900, fontSize: 18 }}>{fmt(state.initialBalances.efectivo + state.initialBalances.cuenta1 + state.initialBalances.cuenta2)}</span>
+                </div>
+              </div>
+            </Box>
+          )}
+
+          <Box>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 14 }}>
+              {state.initialBalances ? "Actualizar saldos" : "Registrar saldos por primera vez"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div><Label>💵 Efectivo disponible ($)</Label>
+                <input type="number" placeholder="0" value={saldos.efectivo} onChange={e => setSaldos(f => ({ ...f, efectivo: e.target.value }))} style={inputSt} />
+              </div>
+              <div><Label>Nombre de cuenta 1</Label>
+                <input placeholder="Ej: Bancolombia Corriente" value={saldos.cuenta1Name} onChange={e => setSaldos(f => ({ ...f, cuenta1Name: e.target.value }))} style={inputSt} />
+              </div>
+              <div><Label>Saldo cuenta 1 ($)</Label>
+                <input type="number" placeholder="0" value={saldos.cuenta1} onChange={e => setSaldos(f => ({ ...f, cuenta1: e.target.value }))} style={inputSt} />
+              </div>
+              <div><Label>Nombre de cuenta 2 (opcional)</Label>
+                <input placeholder="Ej: Nequi, Daviplata, Ahorros..." value={saldos.cuenta2Name} onChange={e => setSaldos(f => ({ ...f, cuenta2Name: e.target.value }))} style={inputSt} />
+              </div>
+              <div><Label>Saldo cuenta 2 ($)</Label>
+                <input type="number" placeholder="0" value={saldos.cuenta2} onChange={e => setSaldos(f => ({ ...f, cuenta2: e.target.value }))} style={inputSt} />
+              </div>
+              {(+saldos.efectivo || +saldos.cuenta1 || +saldos.cuenta2) > 0 && (
+                <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12 }}>
+                  <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 4 }}>Total liquidez a registrar</div>
+                  <div style={{ color: C.accent, fontWeight: 900, fontSize: 22 }}>{fmt(totalLiquidez)}</div>
+                </div>
+              )}
+              <button onClick={saveSaldos} style={{ ...btnPrimary(C.accentBlue), width: "100%", padding: "13px", fontSize: 14 }}>
+                🏦 Guardar saldos iniciales
+              </button>
+            </div>
+          </Box>
+
+          <Box style={{ background: C.surfaceAlt, border: `1px solid ${C.border}` }}>
+            <div style={{ color: C.textMuted, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>💡 Consejos</div>
+            {["Actualiza los saldos al inicio de cada quincena o cuando reciban un pago importante.",
+              "No incluyas el dinero que ya está destinado a deudas o gastos fijos próximos.",
+              "Esta información aparece en el Dashboard junto con su liquidez total del hogar."].map((tip, i) => (
+              <div key={i} style={{ color: C.textMuted, fontSize: 12, display: "flex", gap: 6, marginBottom: 5 }}>
+                <span style={{ color: C.accentBlue, flexShrink: 0 }}>•</span>{tip}
+              </div>
+            ))}
+          </Box>
         </div>
       )}
     </div>
