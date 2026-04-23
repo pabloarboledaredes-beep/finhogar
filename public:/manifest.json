@@ -1,6 +1,6 @@
 {
-  "name": "FinHogar",
-  "short_name": "FinHogar",
+  "name": "NestGrow",
+  "short_name": "NestGrow",
   "description": "Control financiero del hogar",
   "start_url": "/",
   "display": "standalone",

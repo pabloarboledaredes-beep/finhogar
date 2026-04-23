@@ -199,7 +199,7 @@ const AccessDenied = ({ user, onLogout }) => (
     <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
     <div style={{ fontSize: 22, fontWeight: 900, color: C.text, marginBottom: 8 }}>Acceso no autorizado</div>
     <div style={{ color: C.textMuted, fontSize: 14, textAlign: "center", lineHeight: 1.6, marginBottom: 32, maxWidth: 300 }}>
-      El correo <strong style={{ color: C.accentRed }}>{user.email}</strong> no tiene permiso para acceder a FinHogar.<br /><br />
+      El correo <strong style={{ color: C.accentRed }}>{user.email}</strong> no tiene permiso para acceder a NestGrow.<br /><br />
       Esta app es de uso privado para Pablo y Laura.
     </div>
     <button onClick={onLogout} style={{ ...btnPrimary(C.accentRed), padding: "12px 28px", fontSize: 14 }}>
@@ -209,9 +209,9 @@ const AccessDenied = ({ user, onLogout }) => (
 );
 const LoginScreen = ({ onLogin, loading }) => (
   <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-    <div style={{ width: 60, height: 60, borderRadius: 16, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 20 }}>🏡</div>
-    <div style={{ fontSize: 28, fontWeight: 900, color: C.text, letterSpacing: -0.5, marginBottom: 6 }}>FinHogar</div>
-    <div style={{ color: C.textMuted, fontSize: 14, marginBottom: 40, textAlign: "center" }}>Control financiero del hogar<br />Pablo & Esposa</div>
+    <div style={{ width: 60, height: 60, borderRadius: 16, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 20 }}>🪺</div>
+    <div style={{ fontSize: 28, fontWeight: 900, color: C.text, letterSpacing: -0.5, marginBottom: 6 }}>NestGrow</div>
+    <div style={{ color: C.textMuted, fontSize: 14, marginBottom: 40, textAlign: "center" }}>El nido que crece 🪺<br />Pablo & Esposa</div>
     <Box style={{ width: "100%", maxWidth: 340, textAlign: "center" }}>
       <div style={{ color: C.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Bienvenidos 👋</div>
       <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>Inicia sesión con tu cuenta Google para acceder a las finanzas del hogar.</div>
@@ -2054,7 +2054,7 @@ export default function App() {
   // Firestore real-time listener — fires every time ANY user saves data
   useEffect(() => {
     if (!user) return;
-    const docRef = doc(db, "hogar", "finhogar");
+    const docRef = doc(db, "hogar", "nestgrow");
     const unsub = onSnapshot(docRef, (snap) => {
       if (snap.exists()) {
         setStateLocal(prev => ({ ...INIT, ...snap.data() }));
@@ -2075,7 +2075,7 @@ export default function App() {
       if (saveTimeout[0]) clearTimeout(saveTimeout[0]);
       saveTimeout[0] = setTimeout(() => {
         setSyncing(true);
-        setDoc(doc(db, "hogar", "finhogar"), next)
+        setDoc(doc(db, "hogar", "nestgrow"), next)
           .then(() => setSyncing(false))
           .catch(() => setSyncing(false));
       }, 600);
@@ -2125,9 +2125,9 @@ export default function App() {
       <div style={{ padding: "12px 18px 10px", background: C.surface, borderBottom: `1.5px solid ${C.border}`, position: "sticky", top: 0, zIndex: 10, boxShadow: "0 1px 0 rgba(0,0,0,0.04)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🏡</div>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🪺</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>FinHogar</div>
+              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>NestGrow</div>
               <div style={{ fontSize: 10, color: C.textMuted, display: "flex", alignItems: "center", gap: 4 }}>
                 {user.displayName?.split(" ")[0] || user.email}
                 {syncing && <span style={{ color: C.accentBlue }}>· guardando...</span>}
