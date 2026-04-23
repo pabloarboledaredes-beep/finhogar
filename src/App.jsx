@@ -2054,7 +2054,7 @@ export default function App() {
   // Firestore real-time listener — fires every time ANY user saves data
   useEffect(() => {
     if (!user) return;
-    const docRef = doc(db, "hogar", "nestgrow");
+    const docRef = doc(db, "hogar", "finhogar");
     const unsub = onSnapshot(docRef, (snap) => {
       if (snap.exists()) {
         setStateLocal(prev => ({ ...INIT, ...snap.data() }));
@@ -2075,7 +2075,7 @@ export default function App() {
       if (saveTimeout[0]) clearTimeout(saveTimeout[0]);
       saveTimeout[0] = setTimeout(() => {
         setSyncing(true);
-        setDoc(doc(db, "hogar", "nestgrow"), next)
+        setDoc(doc(db, "hogar", "finhogar"), next)
           .then(() => setSyncing(false))
           .catch(() => setSyncing(false));
       }, 600);
