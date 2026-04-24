@@ -224,87 +224,196 @@ const LoginScreen = ({ onLogin, loading }) => (
   </div>
 );
 
+// ── HELPERS DE MES ────────────────────────────────────────────────────────────
+function monthOf(dateStr) {
+  if (!dateStr) return "";
+  return dateStr.slice(0, 7); // "YYYY-MM"
+}
+function navigateMonth(ym, delta) {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 const Dashboard = ({ state }) => {
-  const totalIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
-  const totalSpent = state.budgets.reduce((s, b) => s + b.spent, 0);
+  const [viewMonth, setViewMonth] = useState(getCurrentMonth());
+  const isCurrentMonth = viewMonth === getCurrentMonth();
+
+  // Filter everything by selected month
+  const monthIncomes = state.incomes.filter(i => monthOf(i.date) === viewMonth);
+  const monthExpenses = state.expenses.filter(e => monthOf(e.date) === viewMonth);
+
+  const totalIncome = monthIncomes.reduce((s, i) => s + i.amount, 0);
+
+  // Calculate spent per category from expenses (dynamic, not from budget.spent)
+  const spentByCategory = useMemo(() => {
+    const map = {};
+    monthExpenses.forEach(e => {
+      map[e.category] = (map[e.category] || 0) + e.amount;
+    });
+    return map;
+  }, [monthExpenses]);
+
+  const totalSpent = Object.values(spentByCategory).reduce((s, v) => s + v, 0);
+
   const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
-  const totalLoanDue = state.loans.reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return s + pmt; }, 0);
+  const totalLoanDue = state.loans.reduce((s, l) => {
+    if (l.isVariable) return s;
+    const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments);
+    return s + pmt;
+  }, 0);
   const totalDebtDue = totalCardDue + totalLoanDue;
   const netAvail = totalIncome - totalSpent - totalDebtDue;
-  const byMember = state.members.map(m => ({ ...m, income: state.incomes.filter(i => i.memberId === m.id).reduce((s, i) => s + i.amount, 0) }));
+
+  const byMember = state.members.map(m => ({
+    ...m,
+    income: monthIncomes.filter(i => i.memberId === m.id).reduce((s, i) => s + i.amount, 0)
+  }));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div>
-        <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>{new Date().toLocaleString("es-CO", { month: "long", year: "numeric" }).toUpperCase()}</div>
-        <div style={{ color: C.text, fontSize: 22, fontWeight: 900, letterSpacing: -0.5 }}>Panel Principal</div>
+
+      {/* Month navigator */}
+      <div style={{ display: "flex", alignItems: "center", background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+        <button onClick={() => setViewMonth(navigateMonth(viewMonth, -1))} style={{ padding: "12px 18px", background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 20, borderRight: `1px solid ${C.border}` }}>‹</button>
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{fmtMonth(viewMonth)}</div>
+          {isCurrentMonth && <div style={{ color: C.accent, fontSize: 10, fontWeight: 700 }}>MES ACTUAL</div>}
+          {!isCurrentMonth && <div style={{ color: C.textMuted, fontSize: 10 }}>Historial</div>}
+        </div>
+        <button onClick={() => setViewMonth(navigateMonth(viewMonth, 1))} disabled={isCurrentMonth} style={{ padding: "12px 18px", background: "none", border: "none", color: isCurrentMonth ? C.textSub : C.textMuted, cursor: isCurrentMonth ? "default" : "pointer", fontSize: 20, borderLeft: `1px solid ${C.border}` }}>›</button>
       </div>
+
+      {/* Net flow hero */}
       <Box style={{ borderColor: netAvail >= 0 ? C.accent : C.accentRed }}>
-        <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, letterSpacing: 0.8 }}>FLUJO LIBRE DEL MES</div>
+        <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, letterSpacing: 0.8 }}>FLUJO LIBRE — {fmtMonth(viewMonth).toUpperCase()}</div>
         <div style={{ color: netAvail >= 0 ? C.accent : C.accentRed, fontSize: 32, fontWeight: 900, letterSpacing: -1, marginTop: 4 }}>{fmt(netAvail)}</div>
-        <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>Ingresos − Gastos − Deudas del mes</div>
+        <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>Ingresos − Gastos − Cuotas deudas</div>
         <Divider />
         <div style={{ display: "flex", gap: 16 }}>
-          {byMember.map(m => <div key={m.id} style={{ display: "flex", gap: 6, alignItems: "center" }}><span style={{ fontSize: 14 }}>{m.emoji}</span><span style={{ color: m.color, fontSize: 13, fontWeight: 700 }}>{fmt(m.income)}</span></div>)}
+          {byMember.map(m => (
+            <div key={m.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 14 }}>{m.emoji}</span>
+              <span style={{ color: m.color, fontSize: 13, fontWeight: 700 }}>{fmt(m.income)}</span>
+            </div>
+          ))}
         </div>
       </Box>
+
+      {/* Stats grid */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {[["Ingresos", fmt(totalIncome), "💰", C.accent], ["Gastos", fmt(totalSpent), "🛒", C.accentOrange], ["Cuotas/mes", fmt(totalDebtDue), "💳", C.accentPurple], ["Ahorrado", fmt(state.savings.reduce((s, sv) => s + sv.current, 0)), "🐷", C.accentBlue]].map(([label, value, icon, color]) => (
+        {[
+          ["Ingresos", fmt(totalIncome), "💰", C.accent],
+          ["Gastos", fmt(totalSpent), "🛒", C.accentOrange],
+          ["Cuotas/mes", fmt(totalDebtDue), "💳", C.accentPurple],
+          ["Ahorrado", fmt(state.savings.reduce((s, sv) => s + sv.current, 0)), "🐷", C.accentBlue],
+        ].map(([label, value, icon, color]) => (
           <Box key={label}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 11, fontWeight: 700 }}>{label.toUpperCase()}</span><span style={{ fontSize: 18 }}>{icon}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: C.textMuted, fontSize: 11, fontWeight: 700 }}>{label.toUpperCase()}</span>
+              <span style={{ fontSize: 18 }}>{icon}</span>
+            </div>
             <div style={{ color, fontSize: 20, fontWeight: 800, marginTop: 6 }}>{value}</div>
           </Box>
         ))}
       </div>
+
+      {/* Liquidez */}
       {state.initialBalances && (
         <Box style={{ borderColor: C.accentBlue + "44", background: C.accentBlue + "06" }}>
           <div style={{ color: C.accentBlue, fontSize: 11, fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>💵 LIQUIDEZ DISPONIBLE</div>
           <div style={{ color: C.text, fontSize: 22, fontWeight: 900 }}>{fmt(state.initialBalances.efectivo + state.initialBalances.cuenta1 + state.initialBalances.cuenta2)}</div>
-          <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+          <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
             {state.initialBalances.efectivo > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>💵 Efectivo: {fmt(state.initialBalances.efectivo)}</span>}
             {state.initialBalances.cuenta1 > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>🏦 {state.initialBalances.cuenta1Name}: {fmt(state.initialBalances.cuenta1)}</span>}
+            {state.initialBalances.cuenta2 > 0 && <span style={{ color: C.textMuted, fontSize: 11 }}>🏦 {state.initialBalances.cuenta2Name}: {fmt(state.initialBalances.cuenta2)}</span>}
           </div>
           <div style={{ color: C.textMuted, fontSize: 10, marginTop: 4 }}>Registrado el {state.initialBalances.date} · Actualiza en ⚙️ Config → Saldos</div>
         </Box>
       )}
+
+      {/* Budgets — dynamic spent from expenses */}
       <Box>
-        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Presupuestos</div>
-        {state.budgets.slice(0, 5).map(b => (
-          <div key={b.id} style={{ marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>{b.category}</span><span style={{ color: C.textMuted, fontSize: 12 }}>{fmt(b.spent)} / {fmt(b.limit)}</span></div>
-            <Bar value={b.spent} max={b.limit} />
-          </div>
-        ))}
+        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>
+          Presupuestos · {fmtMonth(viewMonth)}
+        </div>
+        {state.budgets.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin presupuestos creados</div>}
+        {state.budgets.map(b => {
+          const spent = spentByCategory[b.category] || 0;
+          const pct = (spent / (b.limit || 1)) * 100;
+          const statusColor = pct > 100 ? C.accentRed : pct > 85 ? C.accentYellow : pct > 60 ? C.accentOrange : C.accent;
+          return (
+            <div key={b.id} style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: C.textMuted, fontSize: 12 }}>{b.category}</span>
+                <span style={{ color: statusColor, fontSize: 12, fontWeight: 600 }}>{fmt(spent)} / {fmt(b.limit)}</span>
+              </div>
+              <Bar value={spent} max={b.limit} />
+            </div>
+          );
+        })}
       </Box>
+
+      {/* Savings */}
       <Box>
         <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Metas de Ahorro</div>
         {state.savings.map(s => (
           <div key={s.id} style={{ marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{s.name}</span><span style={{ color: s.color, fontSize: 12, fontWeight: 700 }}>{fmtPct((s.current / s.goal) * 100)}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{s.name}</span>
+              <span style={{ color: s.color, fontSize: 12, fontWeight: 700 }}>{fmtPct((s.current / (s.goal || 1)) * 100)}</span>
+            </div>
             <Bar value={s.current} max={s.goal} color={s.color} h={7} />
           </div>
         ))}
       </Box>
-      <Box>
-        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📅 Próximas obligaciones</div>
-        {state.cards.map(c => (
-          <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
-            <div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{c.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>Tarjeta · Cierre día {c.dueDate}</div></div>
-            <Tag color={C.accentOrange}>{fmtShort(c.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : c.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0))}</Tag>
-          </div>
-        ))}
-        {state.loans.map(l => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return (<div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{l.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{l.bank} · Crédito</div></div><Tag color={C.accentPurple}>{fmtShort(pmt)}</Tag></div>); })}
-        {(() => {
-          const cm = getCurrentMonth();
-          const alerts = (state.fixedBills || []).filter(b => !b.payments.find(p => p.month === cm)?.paid).map(b => ({ ...b, daysLeft: getDaysUntilDue(b.dueDay) })).filter(b => b.daysLeft <= 7).sort((a, b2) => a.daysLeft - b2.daysLeft);
-          if (!alerts.length) return null;
-          return (<>
-            <div style={{ color: C.accentYellow, fontSize: 11, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>⚠️ PAGOS FIJOS PRÓXIMOS (7 días)</div>
-            {alerts.map(b => { const st = getAlertStyle(getAlertLevel(b.daysLeft)); return (<div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{b.concept}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{b.category} · Día {b.dueDay}</div></div><div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}><span style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{fmtShort(b.amount)}</span><Tag color={st.color}>{st.label}</Tag></div></div>); })}
-          </>);
-        })()}
-      </Box>
+
+      {/* Upcoming obligations — always current */}
+      {isCurrentMonth && (
+        <Box>
+          <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📅 Próximas obligaciones</div>
+          {state.cards.map(c => (
+            <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{c.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>Tarjeta · Cierre día {c.dueDate}</div></div>
+              <Tag color={C.accentOrange}>{fmtShort(c.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : c.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0))}</Tag>
+            </div>
+          ))}
+          {state.loans.filter(l => !l.isVariable).map(l => {
+            const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments);
+            return (<div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{l.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{l.bank} · Crédito</div></div><Tag color={C.accentPurple}>{fmtShort(pmt)}</Tag></div>);
+          })}
+          {(() => {
+            const cm = getCurrentMonth();
+            const alerts = (state.fixedBills || []).filter(b => !b.payments.find(p => p.month === cm)?.paid).map(b => ({ ...b, daysLeft: getDaysUntilDue(b.dueDay) })).filter(b => b.daysLeft <= 7).sort((a, b2) => a.daysLeft - b2.daysLeft);
+            if (!alerts.length) return null;
+            return (<>
+              <div style={{ color: C.accentYellow, fontSize: 11, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>⚠️ PAGOS FIJOS PRÓXIMOS (7 días)</div>
+              {alerts.map(b => { const st = getAlertStyle(getAlertLevel(b.daysLeft)); return (<div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{b.concept}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{b.category} · Día {b.dueDay}</div></div><div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}><span style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{fmtShort(b.amount)}</span><Tag color={st.color}>{st.label}</Tag></div></div>); })}
+            </>);
+          })()}
+        </Box>
+      )}
+
+      {/* Month expense summary for historical view */}
+      {!isCurrentMonth && monthExpenses.length > 0 && (
+        <Box>
+          <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Gastos del mes</div>
+          {monthExpenses.slice(0, 8).map(e => {
+            const member = state.members.find(m => m.id === e.memberId);
+            return (
+              <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div>
+                  <div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{e.desc}</div>
+                  <div style={{ color: C.textMuted, fontSize: 11 }}>{member?.emoji} {member?.name} · {e.category}</div>
+                </div>
+                <span style={{ color: C.accentRed, fontWeight: 700 }}>-{fmt(e.amount)}</span>
+              </div>
+            );
+          })}
+          {monthExpenses.length > 8 && <div style={{ color: C.textMuted, fontSize: 12, marginTop: 8, textAlign: "center" }}>+{monthExpenses.length - 8} gastos más — ve a 🛒 Gastos</div>}
+        </Box>
+      )}
     </div>
   );
 };
@@ -312,21 +421,42 @@ const Dashboard = ({ state }) => {
 // ── INGRESOS ──────────────────────────────────────────────────────────────────
 const Ingresos = ({ state, setState }) => {
   const [showForm, setShowForm] = useState(false);
+  const [viewMonth, setViewMonth] = useState(getCurrentMonth());
+  const isCurrentMonth = viewMonth === getCurrentMonth();
   const [form, setForm] = useState({ memberId: 1, desc: "", amount: "", type: "fijo", date: getToday() });
-  const totalByMember = useMemo(() => state.members.map(m => ({ ...m, total: state.incomes.filter(i => i.memberId === m.id).reduce((s, i) => s + i.amount, 0), fijo: state.incomes.filter(i => i.memberId === m.id && i.type === "fijo").reduce((s, i) => s + i.amount, 0), variable: state.incomes.filter(i => i.memberId === m.id && i.type === "variable").reduce((s, i) => s + i.amount, 0) })), [state.incomes, state.members]);
+
+  const monthIncomes = state.incomes.filter(i => monthOf(i.date) === viewMonth);
+
+  const totalByMember = useMemo(() => state.members.map(m => ({
+    ...m,
+    total: monthIncomes.filter(i => i.memberId === m.id).reduce((s, i) => s + i.amount, 0),
+    fijo: monthIncomes.filter(i => i.memberId === m.id && i.type === "fijo").reduce((s, i) => s + i.amount, 0),
+    variable: monthIncomes.filter(i => i.memberId === m.id && i.type === "variable").reduce((s, i) => s + i.amount, 0),
+  })), [monthIncomes, state.members]);
+
   const totalHousehold = totalByMember.reduce((s, m) => s + m.total, 0);
   const addIncome = () => { if (!form.desc || !form.amount) return; setState(s => ({ ...s, incomes: [{ id: Date.now(), ...form, memberId: +form.memberId, amount: +form.amount }, ...s.incomes] })); setForm({ memberId: 1, desc: "", amount: "", type: "fijo", date: getToday() }); setShowForm(false); };
   const deleteIncome = (id) => setState(s => ({ ...s, incomes: s.incomes.filter(i => i.id !== id) }));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div><div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Ingresos del Hogar</div><div style={{ color: C.textMuted, fontSize: 12 }}>Control de ingresos por persona</div></div>
+        <div><div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Ingresos del Hogar</div><div style={{ color: C.textMuted, fontSize: 12 }}>Control por persona y mes</div></div>
         <button onClick={() => setShowForm(!showForm)} style={btnPrimary()}>+ Ingreso</button>
       </div>
+
+      {/* Month navigator */}
+      <div style={{ display: "flex", alignItems: "center", background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+        <button onClick={() => setViewMonth(navigateMonth(viewMonth, -1))} style={{ padding: "10px 16px", background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 20, borderRight: `1px solid ${C.border}` }}>‹</button>
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{fmtMonth(viewMonth)}</div>
+          {isCurrentMonth && <div style={{ color: C.accent, fontSize: 10, fontWeight: 700 }}>MES ACTUAL</div>}
+        </div>
+        <button onClick={() => setViewMonth(navigateMonth(viewMonth, 1))} disabled={isCurrentMonth} style={{ padding: "10px 16px", background: "none", border: "none", color: isCurrentMonth ? C.textSub : C.textMuted, cursor: isCurrentMonth ? "default" : "pointer", fontSize: 20, borderLeft: `1px solid ${C.border}` }}>›</button>
+      </div>
       <Box style={{ borderColor: C.accent, background: C.accent + "08" }}>
-        <div style={{ color: C.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>INGRESO TOTAL DEL HOGAR</div>
+        <div style={{ color: C.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>INGRESO TOTAL — {fmtMonth(viewMonth).toUpperCase()}</div>
         <div style={{ color: C.text, fontSize: 32, fontWeight: 900, letterSpacing: -1, marginTop: 4 }}>{fmt(totalHousehold)}</div>
-        <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>Este mes · Ambos aportantes</div>
+        <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>Ambos aportantes</div>
       </Box>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         {totalByMember.map(m => (
@@ -357,9 +487,9 @@ const Ingresos = ({ state, setState }) => {
         </Box>
       )}
       <Box>
-        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Historial de Ingresos</div>
-        {state.incomes.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin ingresos registrados</div>}
-        {state.incomes.map(inc => { const member = state.members.find(m => m.id === inc.memberId); return (
+        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Ingresos de {fmtMonth(viewMonth)}</div>
+        {monthIncomes.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin ingresos registrados en {fmtMonth(viewMonth)}</div>}
+        {monthIncomes.map(inc => { const member = state.members.find(m => m.id === inc.memberId); return (
           <div key={inc.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 18 }}>{member?.emoji}</span><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{inc.desc}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{member?.name} · {inc.date} · <span style={{ color: inc.type === "fijo" ? C.accent : C.accentYellow }}>{inc.type}</span></div></div></div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ color: C.accent, fontWeight: 700, fontSize: 14 }}>+{fmt(inc.amount)}</div><button onClick={() => deleteIncome(inc.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button></div>
@@ -373,14 +503,25 @@ const Ingresos = ({ state, setState }) => {
 // ── GASTOS ────────────────────────────────────────────────────────────────────
 const Gastos = ({ state, setState }) => {
   const CATS = state.categories || DEFAULT_CATS;
+  const [viewMonth, setViewMonth] = useState(getCurrentMonth());
+  const isCurrentMonth = viewMonth === getCurrentMonth();
   const [showExpForm, setShowExpForm] = useState(false);
   const [showBudgetForm, setShowBudgetForm] = useState(false);
   const [expForm, setExpForm] = useState({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, zeroInterest: false, date: getToday() });
   const [budgetForm, setBudgetForm] = useState({ category: "", customCategory: "", limit: "", useCustom: false });
   const [editBudget, setEditBudget] = useState(null);
   const [editBudgetForm, setEditBudgetForm] = useState({ category: "", limit: "" });
-  const totalIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
-  const totalSpent = state.budgets.reduce((s, b) => s + b.spent, 0);
+
+  // Dynamic spent per category for selected month
+  const monthExpenses = state.expenses.filter(e => monthOf(e.date) === viewMonth);
+  const spentByCategory = useMemo(() => {
+    const map = {};
+    monthExpenses.forEach(e => { map[e.category] = (map[e.category] || 0) + e.amount; });
+    return map;
+  }, [monthExpenses]);
+
+  const totalIncome = state.incomes.filter(i => monthOf(i.date) === viewMonth).reduce((s, i) => s + i.amount, 0);
+  const totalSpent = Object.values(spentByCategory).reduce((s, v) => s + v, 0);
 
   const addExpense = () => {
     if (!expForm.desc || !expForm.amount) return;
@@ -388,9 +529,9 @@ const Gastos = ({ state, setState }) => {
     const cardId = expForm.payMethod === "Tarjeta de crédito" ? +expForm.cardId : null;
     const installments = expForm.payMethod === "Tarjeta de crédito" ? +expForm.installments : 1;
     if (cardId && installments > 0) {
-      setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: [...c.purchases, { id: Date.now(), desc: expForm.desc, amount: amt, installments, zeroInterest: expForm.zeroInterest, date: expForm.date, paidInstallments: 0 }] } : c), budgets: s.budgets.map(b => b.category === expForm.category ? { ...b, spent: b.spent + amt } : b), expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId, installments, date: expForm.date }, ...s.expenses] }));
+      setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: [...c.purchases, { id: Date.now(), desc: expForm.desc, amount: amt, installments, zeroInterest: expForm.zeroInterest, date: expForm.date, paidInstallments: 0 }] } : c), expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId, installments, date: expForm.date }, ...s.expenses] }));
     } else {
-      setState(s => ({ ...s, budgets: s.budgets.map(b => b.category === expForm.category ? { ...b, spent: b.spent + amt } : b), expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId: null, installments: 1, date: expForm.date }, ...s.expenses] }));
+      setState(s => ({ ...s, expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId: null, installments: 1, date: expForm.date }, ...s.expenses] }));
     }
     setExpForm({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, zeroInterest: false, date: getToday() });
     setShowExpForm(false);
@@ -422,11 +563,24 @@ const Gastos = ({ state, setState }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div><div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Gastos y Presupuestos</div><div style={{ color: C.textMuted, fontSize: 12 }}>Gasto: {fmt(totalSpent)} / {fmt(totalIncome)}</div></div>
+        <div>
+          <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Gastos y Presupuestos</div>
+          <div style={{ color: C.textMuted, fontSize: 12 }}>Gasto: {fmt(totalSpent)} / {fmt(totalIncome)}</div>
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => { setShowBudgetForm(!showBudgetForm); setShowExpForm(false); }} style={{ ...btnPrimary(C.accentBlue), fontSize: 12, padding: "8px 12px" }}>+ Presupuesto</button>
           <button onClick={() => { setShowExpForm(!showExpForm); setShowBudgetForm(false); }} style={{ ...btnPrimary(), fontSize: 12, padding: "8px 12px" }}>+ Gasto</button>
         </div>
+      </div>
+
+      {/* Month navigator */}
+      <div style={{ display: "flex", alignItems: "center", background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+        <button onClick={() => setViewMonth(navigateMonth(viewMonth, -1))} style={{ padding: "10px 16px", background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 20, borderRight: `1px solid ${C.border}` }}>‹</button>
+        <div style={{ flex: 1, textAlign: "center" }}>
+          <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{fmtMonth(viewMonth)}</div>
+          {isCurrentMonth && <div style={{ color: C.accent, fontSize: 10, fontWeight: 700 }}>MES ACTUAL</div>}
+        </div>
+        <button onClick={() => setViewMonth(navigateMonth(viewMonth, 1))} disabled={isCurrentMonth} style={{ padding: "10px 16px", background: "none", border: "none", color: isCurrentMonth ? C.textSub : C.textMuted, cursor: isCurrentMonth ? "default" : "pointer", fontSize: 20, borderLeft: `1px solid ${C.border}` }}>›</button>
       </div>
 
       {showBudgetForm && (
@@ -524,7 +678,8 @@ const Gastos = ({ state, setState }) => {
       )}
 
       {state.budgets.map(b => {
-        const pct = (b.spent / b.limit) * 100;
+        const spent = spentByCategory[b.category] || 0;
+        const pct = (spent / b.limit) * 100;
         const [status, statusColor] = pct > 100 ? ["Excedido", C.accentRed] : pct > 85 ? ["Crítico", C.accentYellow] : pct > 60 ? ["Moderado", C.accentOrange] : ["Bien", C.accent];
         return (
           <Box key={b.id}>
@@ -537,15 +692,15 @@ const Gastos = ({ state, setState }) => {
             ) : (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <div><div style={{ color: C.text, fontWeight: 700 }}>{b.category}</div><div style={{ color: C.textMuted, fontSize: 12 }}>{fmt(b.spent)} / {fmt(b.limit)}</div></div>
+                  <div><div style={{ color: C.text, fontWeight: 700 }}>{b.category}</div><div style={{ color: C.textMuted, fontSize: 12 }}>{fmt(spent)} / {fmt(b.limit)}</div></div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <Tag color={statusColor}>{status}</Tag>
                     <button onClick={() => startEditBudget(b)} style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontSize: 15, padding: "2px 4px" }}>✏️</button>
                     <button onClick={() => deleteBudget(b.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
                   </div>
                 </div>
-                <Bar value={b.spent} max={b.limit} h={8} />
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}><span style={{ color: C.textMuted, fontSize: 11 }}>Disponible: {fmt(b.limit - b.spent)}</span><span style={{ color: statusColor, fontSize: 11, fontWeight: 700 }}>{fmtPct(pct)}</span></div>
+                <Bar value={spent} max={b.limit} h={8} />
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5 }}><span style={{ color: C.textMuted, fontSize: 11 }}>Disponible: {fmt(b.limit - spent)}</span><span style={{ color: statusColor, fontSize: 11, fontWeight: 700 }}>{fmtPct(pct)}</span></div>
               </>
             )}
           </Box>
@@ -553,9 +708,9 @@ const Gastos = ({ state, setState }) => {
       })}
 
       <Box>
-        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Últimos Gastos</div>
-        {state.expenses.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin gastos registrados</div>}
-        {state.expenses.map(e => { const member = state.members.find(m => m.id === e.memberId); const card = e.cardId ? state.cards.find(c => c.id === e.cardId) : null; return (
+        <div style={{ color: C.text, fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Gastos de {fmtMonth(viewMonth)}</div>
+        {monthExpenses.length === 0 && <div style={{ color: C.textMuted, fontSize: 13 }}>Sin gastos registrados en {fmtMonth(viewMonth)}</div>}
+        {monthExpenses.map(e => { const member = state.members.find(m => m.id === e.memberId); const card = e.cardId ? state.cards.find(c => c.id === e.cardId) : null; return (
           <div key={e.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 16 }}>{pmIcon[e.payMethod] || "💵"}</span><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{e.desc}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{member?.emoji} {member?.name} · {e.category} · {e.date}{card && <span style={{ color: C.accentOrange }}> · {card.name}{e.installments > 1 ? ` (${e.installments}c)` : ""}</span>}</div></div></div>
@@ -572,12 +727,16 @@ const Gastos = ({ state, setState }) => {
 const Deudas = ({ state, setState }) => {
   const [tab, setTab] = useState("cards");
   const [showLoanForm, setShowLoanForm] = useState(false);
-  const [loanForm, setLoanForm] = useState({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", addToCalendar: true });
+  const [loanForm, setLoanForm] = useState({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", addToCalendar: true, isVariable: false });
 
   // Payment modal state
-  const [payModal, setPayModal] = useState(null); // { loanId, calcPmt, currentBalance }
+  const [payModal, setPayModal] = useState(null);
   const [payAmount, setPayAmount] = useState("");
-  const [payStrategy, setPayStrategy] = useState("plazo"); // "plazo" | "deuda"
+  const [payStrategy, setPayStrategy] = useState("plazo");
+
+  // Variable loan payment modal (Lulo-style)
+  const [varPayModal, setVarPayModal] = useState(null); // loanId
+  const [varPayForm, setVarPayForm] = useState({ capital: "", interest: "", others: "", date: getToday() });
 
   // Edit purchase modal
   const [editPurchase, setEditPurchase] = useState(null); // { cardId, purchase }
@@ -585,12 +744,28 @@ const Deudas = ({ state, setState }) => {
 
   // Edit loan modal
   const [editLoan, setEditLoan] = useState(null);
-  const [editLoanForm, setEditLoanForm] = useState({ name: "", bank: "", principal: "", rate: "", totalInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", extraAmount: "" });
+  const [editLoanForm, setEditLoanForm] = useState({ name: "", bank: "", principal: "", rate: "", totalInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", extraAmount: "", isVariable: false });
 
-  const cardSummary = useMemo(() => state.cards.map(card => { const ap = card.purchases.filter(p => p.paidInstallments < p.installments); const currentDue = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0); const totalBalance = ap.reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.balance || 0) + (rows[p.paidInstallments]?.capital || 0); }, 0); return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) }; }), [state.cards]);
+  const cardSummary = useMemo(() => state.cards.map(card => {
+    const ap = card.purchases.filter(p => p.paidInstallments < p.installments);
+    const currentDue = ap.reduce((sum, p) => {
+      const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate);
+      return sum + (rows[p.paidInstallments]?.pmt || 0);
+    }, 0);
+    const totalBalance = ap.reduce((sum, p) => {
+      const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate);
+      // Balance after last paid installment (or full amount if nothing paid yet)
+      const bal = p.paidInstallments > 0
+        ? (rows[p.paidInstallments - 1]?.balance || 0)
+        : p.amount;
+      return sum + bal;
+    }, 0);
+    return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) };
+  }), [state.cards]);
 
   const totalCardDue = cardSummary.reduce((s, c) => s + c.currentDue, 0);
   const totalLoanDue = state.loans.reduce((s, l) => {
+    if (l.isVariable) return s; // variable loans don't have a fixed monthly due
     const effectivePmt = l.actualPayment || buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments).pmt;
     return s + effectivePmt;
   }, 0);
@@ -624,7 +799,7 @@ const Deudas = ({ state, setState }) => {
 
   const openEditLoan = (loan) => {
     setEditLoan(loan.id);
-    setEditLoanForm({ name: loan.name, bank: loan.bank, principal: String(loan.principal), rate: String(loan.rate), totalInstallments: String(loan.totalInstallments), actualPayment: loan.actualPayment ? String(loan.actualPayment) : "", dueDay: loan.dueDay || "", nextPaymentDate: loan.nextPaymentDate || "", extraAmount: "" });
+    setEditLoanForm({ name: loan.name, bank: loan.bank, principal: String(loan.principal), rate: String(loan.rate), totalInstallments: String(loan.totalInstallments), actualPayment: loan.actualPayment ? String(loan.actualPayment) : "", dueDay: loan.dueDay || "", nextPaymentDate: loan.nextPaymentDate || "", extraAmount: "", isVariable: !!loan.isVariable });
   };
 
   const saveEditLoan = () => {
@@ -641,6 +816,11 @@ const Deudas = ({ state, setState }) => {
         actualPayment: editLoanForm.actualPayment ? +editLoanForm.actualPayment : null,
         dueDay: editLoanForm.dueDay || null,
         nextPaymentDate: editLoanForm.nextPaymentDate || null,
+        isVariable: !!editLoanForm.isVariable,
+        // For variable loans: if extra amount, add to currentBalance
+        currentBalance: loan.isVariable
+          ? Math.max(0, (loan.currentBalance ?? loan.principal) + extra)
+          : undefined,
       };
 
       const pmt = Math.round(buildLoanAmortization(newPrincipal, +editLoanForm.rate, +editLoanForm.totalInstallments).pmt);
@@ -740,7 +920,37 @@ const Deudas = ({ state, setState }) => {
     setPayAmount("");
   };
 
-  const addLoan = () => {
+  const confirmVarPayment = () => {
+    const capital = +varPayForm.capital || 0;
+    const interest = +varPayForm.interest || 0;
+    const others = +varPayForm.others || 0;
+    const total = capital + interest + others;
+    if (!capital && !total) return;
+
+    setState(s => {
+      const loan = s.loans.find(l => l.id === varPayModal);
+      if (!loan) return s;
+      const newBalance = Math.max(0, (loan.currentBalance ?? loan.principal) - capital);
+      const newPayment = { id: Date.now(), date: varPayForm.date, capital, interest, others, total };
+      const newExpense = {
+        id: Date.now() + 1, memberId: loan.holder, category: "Otros",
+        desc: `Cuota ${loan.name} — Capital: ${fmt(capital)}, Int: ${fmt(interest)}${others > 0 ? `, Otros: ${fmt(others)}` : ""}`,
+        amount: total, payMethod: "Transferencia", cardId: null, installments: 1, date: varPayForm.date,
+      };
+      return {
+        ...s,
+        loans: s.loans.map(l => l.id === varPayModal ? {
+          ...l,
+          currentBalance: newBalance,
+          paidInstallments: l.paidInstallments + 1,
+          paymentHistory: [...(l.paymentHistory || []), newPayment],
+        } : l),
+        expenses: [newExpense, ...s.expenses],
+      };
+    });
+    setVarPayModal(null);
+    setVarPayForm({ capital: "", interest: "", others: "", date: getToday() });
+  };
     if (!loanForm.name || !loanForm.principal) return;
     const newLoan = {
       id: Date.now(),
@@ -751,6 +961,9 @@ const Deudas = ({ state, setState }) => {
       actualPayment: loanForm.actualPayment ? +loanForm.actualPayment : null,
       dueDay: loanForm.dueDay || null,
       nextPaymentDate: loanForm.nextPaymentDate || null,
+      isVariable: !!loanForm.isVariable,
+      currentBalance: +loanForm.principal, // track live balance for variable loans
+      paymentHistory: [], // [{date, capital, interest, others, total}]
     };
 
     setState(s => {
@@ -783,7 +996,7 @@ const Deudas = ({ state, setState }) => {
       return newState;
     });
 
-    setLoanForm({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", addToCalendar: true });
+    setLoanForm({ name: "", bank: "", holder: 1, principal: "", rate: "", totalInstallments: "", paidInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", addToCalendar: true, isVariable: false });
     setShowLoanForm(false);
   };
 
@@ -979,6 +1192,77 @@ const Deudas = ({ state, setState }) => {
         </div>
       )}
 
+      {/* Variable Loan Payment Modal */}
+      {varPayModal && (() => {
+        const loan = state.loans.find(l => l.id === varPayModal);
+        if (!loan) return null;
+        const capital = +varPayForm.capital || 0;
+        const interest = +varPayForm.interest || 0;
+        const others = +varPayForm.others || 0;
+        const total = capital + interest + others;
+        const currentBal = loan.currentBalance ?? loan.principal;
+        const newBalance = Math.max(0, currentBal - capital);
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago — {loan.name}</div>
+                <button onClick={() => setVarPayModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+              </div>
+              <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>Ingresa los valores exactos del extracto</div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div><Label>💰 Abono a capital ($)</Label>
+                  <input type="number" placeholder="0" value={varPayForm.capital} onChange={e => setVarPayForm(f => ({ ...f, capital: e.target.value }))} style={{ ...inputSt, borderColor: C.accent + "66" }} />
+                </div>
+                <div><Label>📈 Intereses pagados ($)</Label>
+                  <input type="number" placeholder="0" value={varPayForm.interest} onChange={e => setVarPayForm(f => ({ ...f, interest: e.target.value }))} style={{ ...inputSt, borderColor: C.accentRed + "66" }} />
+                </div>
+                <div><Label>🔧 Otros costos — seguros, admin ($)</Label>
+                  <input type="number" placeholder="0" value={varPayForm.others} onChange={e => setVarPayForm(f => ({ ...f, others: e.target.value }))} style={{ ...inputSt, borderColor: C.accentYellow + "66" }} />
+                </div>
+                <div><Label>Fecha del pago</Label>
+                  <DatePicker value={varPayForm.date} onChange={v => setVarPayForm(f => ({ ...f, date: v }))} />
+                </div>
+
+                {total > 0 && (
+                  <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14 }}>
+                    <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700, marginBottom: 10 }}>RESUMEN DEL PAGO</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {[
+                        ["Abono a capital", capital, C.accent],
+                        ["Intereses", interest, C.accentRed],
+                        ["Otros costos", others, C.accentYellow],
+                      ].filter(([,v]) => v > 0).map(([label, value, color]) => (
+                        <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ color: C.textMuted, fontSize: 13 }}>{label}</span>
+                          <span style={{ color, fontSize: 13, fontWeight: 700 }}>{fmt(value)}</span>
+                        </div>
+                      ))}
+                      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: C.text, fontWeight: 700 }}>Total pagado</span>
+                        <span style={{ color: C.text, fontWeight: 900, fontSize: 16 }}>{fmt(total)}</span>
+                      </div>
+                      {capital > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                          <span style={{ color: C.accentPurple, fontWeight: 700 }}>Nuevo saldo</span>
+                          <span style={{ color: C.accentPurple, fontWeight: 900, fontSize: 18 }}>{fmt(newBalance)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <button onClick={confirmVarPayment} style={{ ...btnPrimary(C.accentPurple), flex: 1, padding: "13px" }}>✓ Confirmar pago</button>
+                  <button onClick={() => setVarPayModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Control de Deudas</div>
         {tab === "loans" && <button onClick={() => setShowLoanForm(!showLoanForm)} style={btnPrimary(C.accentPurple)}>+ Crédito</button>}
@@ -1044,6 +1328,17 @@ const Deudas = ({ state, setState }) => {
               <div><Label>Total de cuotas</Label><input type="number" value={loanForm.totalInstallments} onChange={e => setLoanForm(f => ({ ...f, totalInstallments: e.target.value }))} style={inputSt} /></div>
               <div><Label>Cuotas ya pagadas</Label><input type="number" value={loanForm.paidInstallments} onChange={e => setLoanForm(f => ({ ...f, paidInstallments: e.target.value }))} style={inputSt} /></div>
 
+              {/* Variable loan toggle */}
+              <button onClick={() => setLoanForm(f => ({ ...f, isVariable: !f.isVariable }))} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", borderRadius: 10, border: `1.5px solid ${loanForm.isVariable ? C.accentPurple : C.border}`, background: loanForm.isVariable ? C.accentPurple + "10" : C.surfaceAlt, cursor: "pointer", fontFamily: "inherit", width: "100%", textAlign: "left" }}>
+                <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${loanForm.isVariable ? C.accentPurple : C.border}`, background: loanForm.isVariable ? C.accentPurple : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                  {loanForm.isVariable && <span style={{ color: "#fff", fontSize: 12, fontWeight: 900 }}>✓</span>}
+                </div>
+                <div>
+                  <div style={{ color: loanForm.isVariable ? C.accentPurple : C.text, fontWeight: 700, fontSize: 13 }}>Crédito de cuota variable</div>
+                  <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>Activa esto si el crédito no sigue la fórmula estándar (ej: Lulo Bank). Cada mes ingresarás manualmente capital, intereses y otros costos del extracto.</div>
+                </div>
+              </button>
+
               {/* Actual payment — key new field */}
               {loanForm.principal && loanForm.rate && loanForm.totalInstallments && (() => {
                 const calcPmt = Math.round(buildLoanAmortization(+loanForm.principal, +loanForm.rate, +loanForm.totalInstallments).pmt);
@@ -1104,9 +1399,100 @@ const Deudas = ({ state, setState }) => {
 
         {state.loans.map(loan => {
           const member = state.members.find(m => m.id === loan.holder);
+          const isVar = !!loan.isVariable;
+          const remaining = loan.totalInstallments - loan.paidInstallments;
+          const linkedBill = (state.fixedBills || []).find(b => b.fromLoanId === loan.id);
+
+          // Variable loan display
+          if (isVar) {
+            const liveBal = loan.currentBalance ?? loan.principal;
+            const history = loan.paymentHistory || [];
+            const totalPaidCapital = history.reduce((s, p) => s + p.capital, 0);
+            const totalPaidInterest = history.reduce((s, p) => s + p.interest, 0);
+            const totalPaidOthers = history.reduce((s, p) => s + p.others, 0);
+            const paidPct = Math.min(100, (totalPaidCapital / loan.principal) * 100);
+            return (
+              <Box key={loan.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div>
+                      <Tag color={C.accentPurple}>Cuota variable</Tag>
+                    </div>
+                    <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name}</div>
+                    {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️</button>
+                    <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <div style={{ background: C.accentPurple + "10", borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>SALDO ACTUAL</div><div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 18 }}>{fmt(liveBal)}</div></div>
+                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>PAGOS REGISTRADOS</div><div style={{ color: C.text, fontWeight: 800, fontSize: 18 }}>{history.length}</div></div>
+                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL CAPITAL PAGADO</div><div style={{ color: C.accent, fontWeight: 700, fontSize: 14 }}>{fmt(totalPaidCapital)}</div></div>
+                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL INTERESES</div><div style={{ color: C.accentRed, fontWeight: 700, fontSize: 14 }}>{fmt(totalPaidInterest)}</div></div>
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>Capital pagado vs original</span>
+                    <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmtPct(paidPct)}</span>
+                  </div>
+                  <Bar value={totalPaidCapital} max={loan.principal} color={C.accentPurple} h={8} />
+                </div>
+
+                {/* Payment history */}
+                {history.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ color: C.text, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Historial de pagos</div>
+                    <div style={{ borderRadius: 10, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ background: C.surfaceAlt }}>
+                            {["Fecha", "Capital", "Interés", "Otros", "Total"].map(h => (
+                              <th key={h} style={{ padding: "7px 6px", color: C.textMuted, fontWeight: 600, textAlign: "right", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...history].reverse().map((p, i) => (
+                            <tr key={p.id} style={{ background: i % 2 === 0 ? C.surface : C.surfaceAlt, borderBottom: `1px solid ${C.border}` }}>
+                              <td style={{ padding: "7px 6px", color: C.textMuted, textAlign: "right" }}>{p.date?.slice(5)}</td>
+                              <td style={{ padding: "7px 6px", color: C.accent, textAlign: "right", fontWeight: 600 }}>{fmtShort(p.capital)}</td>
+                              <td style={{ padding: "7px 6px", color: C.accentRed, textAlign: "right" }}>{fmtShort(p.interest)}</td>
+                              <td style={{ padding: "7px 6px", color: C.accentYellow, textAlign: "right" }}>{fmtShort(p.others)}</td>
+                              <td style={{ padding: "7px 6px", color: C.text, textAlign: "right", fontWeight: 700 }}>{fmtShort(p.total)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{ background: C.surfaceAlt }}>
+                            <td style={{ padding: "7px 6px", color: C.text, fontWeight: 700, textAlign: "right" }}>Total</td>
+                            <td style={{ padding: "7px 6px", color: C.accent, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidCapital)}</td>
+                            <td style={{ padding: "7px 6px", color: C.accentRed, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidInterest)}</td>
+                            <td style={{ padding: "7px 6px", color: C.accentYellow, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidOthers)}</td>
+                            <td style={{ padding: "7px 6px", color: C.text, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidCapital + totalPaidInterest + totalPaidOthers)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <button onClick={() => { setVarPayModal(loan.id); setVarPayForm({ capital: "", interest: "", others: "", date: getToday() }); }}
+                  style={{ ...btnPrimary(C.accentPurple), width: "100%", fontSize: 13 }}>
+                  💸 Registrar pago del mes (desde el extracto)
+                </button>
+              </Box>
+            );
+          }
+
+          // Standard loan display
           const { rows, pmt } = buildLoanAmortization(loan.principal, loan.rate, loan.totalInstallments, loan.paidInstallments);
           const remaining = loan.totalInstallments - loan.paidInstallments;
-          const currentBalance = rows[loan.paidInstallments]?.balance || 0;
+          const currentBalance = loan.paidInstallments > 0
+            ? (rows[loan.paidInstallments - 1]?.balance || 0)
+            : loan.principal;
           const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
           const paidPct = (loan.paidInstallments / loan.totalInstallments) * 100;
           const effectivePmt = loan.actualPayment || pmt;
@@ -1162,7 +1548,7 @@ const Deudas = ({ state, setState }) => {
 
               {remaining > 0 && (
                 <button onClick={() => openPayModal(loan, pmt, currentBalance)} style={{ ...btnPrimary(C.accentPurple), width: "100%", marginTop: 12, fontSize: 13 }}>
-                  💸 Pagar cuota #{loan.paidInstallments + 1}
+                  💸 Pagar cuota #{loan.paidInstallments + 1} — {fmt(loan.actualPayment || pmt)}
                 </button>
               )}
               {remaining === 0 && <div style={{ textAlign: "center", color: C.accent, fontWeight: 800, marginTop: 12 }}>✅ Crédito cancelado</div>}
@@ -1404,7 +1790,6 @@ const Calendario = ({ state, setState }) => {
       let newState = {
         ...s,
         expenses: [{ id: newExpenseId, memberId: s.members[0]?.id || 1, category: bill.category, desc: `${bill.concept} (pago fijo)`, amount: bill.amount, payMethod: bill.payMethod, cardId: null, installments: 1, date: today, fromFixedBill: true }, ...s.expenses],
-        budgets: s.budgets.map(b => b.category === bill.category ? { ...b, spent: b.spent + bill.amount } : b),
         fixedBills: s.fixedBills.map(b => b.id === billId ? { ...b, payments: [...b.payments.filter(p => p.month !== viewMonth), { id: newExpenseId, month: viewMonth, paid: true, paidDate: today, expenseId: newExpenseId }] } : b),
       };
 
@@ -1441,9 +1826,7 @@ const Calendario = ({ state, setState }) => {
     setState(s => ({
       ...s,
       expenses: s.expenses.filter(e => e.id !== payment.expenseId),
-      budgets: s.budgets.map(b => b.category === bill.category ? { ...b, spent: Math.max(0, b.spent - bill.amount) } : b),
       fixedBills: s.fixedBills.map(b => b.id === billId ? { ...b, payments: b.payments.filter(p => p.month !== viewMonth) } : b),
-      // Undo loan installment if linked
       ...(bill.fromLoanId ? { loans: s.loans.map(l => l.id === bill.fromLoanId ? { ...l, paidInstallments: Math.max(0, l.paidInstallments - 1) } : l) } : {}),
     }));
   };
@@ -1907,7 +2290,8 @@ const Configuracion = ({ state, setState }) => {
             const activePurchases = (c.purchases || []).filter(p => p.paidInstallments < p.installments);
             const totalBalance = activePurchases.reduce((sum, p) => {
               const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : c.rate);
-              return sum + (rows[p.paidInstallments]?.balance || 0);
+              const bal = p.paidInstallments > 0 ? (rows[p.paidInstallments - 1]?.balance || 0) : p.amount;
+              return sum + bal;
             }, 0);
             const utilization = c.limit > 0 ? (totalBalance / c.limit) * 100 : 0;
             return (
