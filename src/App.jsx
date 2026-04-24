@@ -507,7 +507,7 @@ const Gastos = ({ state, setState }) => {
   const isCurrentMonth = viewMonth === getCurrentMonth();
   const [showExpForm, setShowExpForm] = useState(false);
   const [showBudgetForm, setShowBudgetForm] = useState(false);
-  const [expForm, setExpForm] = useState({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, zeroInterest: false, date: getToday() });
+  const [expForm, setExpForm] = useState({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: "", zeroInterest: false, date: getToday() });
   const [budgetForm, setBudgetForm] = useState({ category: "", customCategory: "", limit: "", useCustom: false });
   const [editBudget, setEditBudget] = useState(null);
   const [editBudgetForm, setEditBudgetForm] = useState({ category: "", limit: "" });
@@ -527,13 +527,13 @@ const Gastos = ({ state, setState }) => {
     if (!expForm.desc || !expForm.amount) return;
     const amt = +expForm.amount;
     const cardId = expForm.payMethod === "Tarjeta de crédito" ? +expForm.cardId : null;
-    const installments = expForm.payMethod === "Tarjeta de crédito" ? +expForm.installments : 1;
+    const installments = expForm.payMethod === "Tarjeta de crédito" ? (+expForm.installments || 1) : 1;
     if (cardId && installments > 0) {
       setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: [...c.purchases, { id: Date.now(), desc: expForm.desc, amount: amt, installments, zeroInterest: expForm.zeroInterest, date: expForm.date, paidInstallments: 0 }] } : c), expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId, installments, date: expForm.date }, ...s.expenses] }));
     } else {
       setState(s => ({ ...s, expenses: [{ id: Date.now(), memberId: +expForm.memberId, category: expForm.category, desc: expForm.desc, amount: amt, payMethod: expForm.payMethod, cardId: null, installments: 1, date: expForm.date }, ...s.expenses] }));
     }
-    setExpForm({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: 1, zeroInterest: false, date: getToday() });
+    setExpForm({ memberId: 1, category: CATS[0], desc: "", amount: "", payMethod: "Efectivo", cardId: "", installments: "", zeroInterest: false, date: getToday() });
     setShowExpForm(false);
   };
 
@@ -615,8 +615,8 @@ const Gastos = ({ state, setState }) => {
             <div><Label>Método de pago</Label><select value={expForm.payMethod} onChange={e => setExpForm(f => ({ ...f, payMethod: e.target.value, cardId: "", installments: 1 }))} style={inputSt}>{PAY_METHODS.map(p => <option key={p}>{p}</option>)}</select></div>
             {expForm.payMethod === "Tarjeta de crédito" && (<>
               <div><Label>Tarjeta</Label><select value={expForm.cardId} onChange={e => setExpForm(f => ({ ...f, cardId: e.target.value }))} style={inputSt}><option value="">Selecciona tarjeta...</option>{state.cards.map(c => { const h = state.members.find(m => m.id === c.holder); return <option key={c.id} value={c.id}>{c.name} ({h?.name})</option>; })}</select></div>
-              <div><Label>Cuotas (1 a 36)</Label><input type="number" min="1" max="36" value={expForm.installments} onChange={e => setExpForm(f => ({ ...f, installments: Math.min(36, Math.max(1, +e.target.value || 1)) }))} style={inputSt} /></div>
-              {expForm.installments > 1 && (
+              <div><Label>Cuotas (1 a 36)</Label><input type="number" min="1" max="36" placeholder="Ej: 12" value={expForm.installments || ""} onChange={e => { const n = e.target.value === "" ? "" : Math.min(36, Math.max(1, +e.target.value)); setExpForm(f => ({ ...f, installments: n })); }} style={inputSt} /></div>
+              {(+expForm.installments || 0) > 1 && (
                 <button
                   onClick={() => setExpForm(f => ({ ...f, zeroInterest: !f.zeroInterest }))}
                   style={{
@@ -643,10 +643,10 @@ const Gastos = ({ state, setState }) => {
                   </div>
                 </button>
               )}
-              {expForm.amount && expForm.cardId && expForm.installments > 1 && (() => {
+              {expForm.amount && expForm.cardId && (+expForm.installments || 0) > 1 && (() => {
                 const card = state.cards.find(c => c.id === +expForm.cardId);
                 const rate = expForm.zeroInterest ? 0 : (card?.rate || 2.0);
-                const rows = buildPurchaseAmortization(+expForm.amount, expForm.installments, rate);
+                const rows = buildPurchaseAmortization(+expForm.amount, +expForm.installments, rate);
                 const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
                 return (
                   <Box style={{ background: C.surfaceAlt, border: "none" }}>
@@ -1252,7 +1252,7 @@ const Deudas = ({ state, setState }) => {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div><Label>Descripción</Label><input value={editPurchaseForm.desc} onChange={e => setEditPurchaseForm(f => ({ ...f, desc: e.target.value }))} style={inputSt} /></div>
               <div><Label>Valor ($)</Label><input type="number" value={editPurchaseForm.amount} onChange={e => setEditPurchaseForm(f => ({ ...f, amount: e.target.value }))} style={inputSt} /></div>
-              <div><Label>Cuotas (1 a 36)</Label><input type="number" min="1" max="36" value={editPurchaseForm.installments} onChange={e => setEditPurchaseForm(f => ({ ...f, installments: Math.min(36, Math.max(1, +e.target.value || 1)) }))} style={inputSt} /></div>
+              <div><Label>Cuotas (1 a 36)</Label><input type="number" min="1" max="36" placeholder="Ej: 12" value={editPurchaseForm.installments || ""} onChange={e => { const n = e.target.value === "" ? "" : Math.min(36, Math.max(1, +e.target.value)); setEditPurchaseForm(f => ({ ...f, installments: n })); }} style={inputSt} /></div>
               <div><Label>Fecha</Label><DatePicker value={editPurchaseForm.date || getToday()} onChange={v => setEditPurchaseForm(f => ({ ...f, date: v }))} /></div>
               <button onClick={() => setEditPurchaseForm(f => ({ ...f, zeroInterest: !f.zeroInterest }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${editPurchaseForm.zeroInterest ? C.accent : C.border}`, background: editPurchaseForm.zeroInterest ? C.accent + "10" : "transparent", cursor: "pointer", fontFamily: "inherit" }}>
                 <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${editPurchaseForm.zeroInterest ? C.accent : C.border}`, background: editPurchaseForm.zeroInterest ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{editPurchaseForm.zeroInterest && <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
