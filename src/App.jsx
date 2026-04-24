@@ -723,6 +723,127 @@ const Gastos = ({ state, setState }) => {
   );
 };
 
+// ── LOAN CARD COMPONENT ───────────────────────────────────────────────────────
+const LoanCard = ({ loan, state, openEditLoan, deleteLoan, openPayModal, setVarPayModal, setVarPayForm }) => {
+  const member = state.members.find(m => m.id === loan.holder);
+  const linkedBill = (state.fixedBills || []).find(b => b.fromLoanId === loan.id);
+
+  if (loan.isVariable) {
+    const liveBal = loan.currentBalance ?? loan.principal;
+    const history = loan.paymentHistory || [];
+    const totalPaidCapital = history.reduce((s, p) => s + p.capital, 0);
+    const totalPaidInterest = history.reduce((s, p) => s + p.interest, 0);
+    const totalPaidOthers = history.reduce((s, p) => s + p.others, 0);
+    const paidPct = Math.min(100, (totalPaidCapital / loan.principal) * 100);
+    return (
+      <Box key={loan.id}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div>
+              <Tag color={C.accentPurple}>Cuota variable</Tag>
+            </div>
+            <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name}</div>
+            {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️</button>
+            <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+          <div style={{ background: C.accentPurple + "10", borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>SALDO ACTUAL</div><div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 18 }}>{fmt(liveBal)}</div></div>
+          <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>PAGOS REGISTRADOS</div><div style={{ color: C.text, fontWeight: 800, fontSize: 18 }}>{history.length}</div></div>
+          <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL CAPITAL PAGADO</div><div style={{ color: C.accent, fontWeight: 700, fontSize: 14 }}>{fmt(totalPaidCapital)}</div></div>
+          <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL INTERESES</div><div style={{ color: C.accentRed, fontWeight: 700, fontSize: 14 }}>{fmt(totalPaidInterest)}</div></div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Capital pagado vs original</span><span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmtPct(paidPct)}</span></div>
+          <Bar value={totalPaidCapital} max={loan.principal} color={C.accentPurple} h={8} />
+        </div>
+        {history.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Historial de pagos</div>
+            <div style={{ borderRadius: 10, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead><tr style={{ background: C.surfaceAlt }}>{["Fecha","Capital","Interés","Otros","Total"].map(h => <th key={h} style={{ padding: "7px 6px", color: C.textMuted, fontWeight: 600, textAlign: "right", borderBottom: `1px solid ${C.border}` }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {[...history].reverse().map((p, i) => (
+                    <tr key={p.id} style={{ background: i % 2 === 0 ? C.surface : C.surfaceAlt, borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: "7px 6px", color: C.textMuted, textAlign: "right" }}>{p.date?.slice(5)}</td>
+                      <td style={{ padding: "7px 6px", color: C.accent, textAlign: "right", fontWeight: 600 }}>{fmtShort(p.capital)}</td>
+                      <td style={{ padding: "7px 6px", color: C.accentRed, textAlign: "right" }}>{fmtShort(p.interest)}</td>
+                      <td style={{ padding: "7px 6px", color: C.accentYellow, textAlign: "right" }}>{fmtShort(p.others)}</td>
+                      <td style={{ padding: "7px 6px", color: C.text, textAlign: "right", fontWeight: 700 }}>{fmtShort(p.total)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: C.surfaceAlt }}>
+                    <td style={{ padding: "7px 6px", color: C.text, fontWeight: 700, textAlign: "right" }}>Total</td>
+                    <td style={{ padding: "7px 6px", color: C.accent, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidCapital)}</td>
+                    <td style={{ padding: "7px 6px", color: C.accentRed, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidInterest)}</td>
+                    <td style={{ padding: "7px 6px", color: C.accentYellow, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidOthers)}</td>
+                    <td style={{ padding: "7px 6px", color: C.text, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidCapital + totalPaidInterest + totalPaidOthers)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        <button onClick={() => { setVarPayModal(loan.id); setVarPayForm({ capital: "", interest: "", others: "", date: getToday() }); }} style={{ ...btnPrimary(C.accentPurple), width: "100%", fontSize: 13 }}>
+          💸 Registrar pago del mes (desde el extracto)
+        </button>
+      </Box>
+    );
+  }
+
+  // Standard loan
+  const { rows, pmt } = buildLoanAmortization(loan.principal, loan.rate, loan.totalInstallments, loan.paidInstallments);
+  const remaining = loan.totalInstallments - loan.paidInstallments;
+  const currentBalance = loan.paidInstallments > 0 ? (rows[loan.paidInstallments - 1]?.balance || 0) : loan.principal;
+  const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
+  const paidPct = (loan.paidInstallments / loan.totalInstallments) * 100;
+  const effectivePmt = loan.actualPayment || pmt;
+  const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - pmt) : 0;
+  return (
+    <Box key={loan.id}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+        <div>
+          <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div>
+          <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name} · Tasa {loan.rate}% mensual</div>
+          {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}{loan.nextPaymentDate ? ` · Próximo pago: ${loan.nextPaymentDate}` : ""}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️ Editar</button>
+          <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+        <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>SALDO ACTUAL</div><div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 16 }}>{fmt(currentBalance)}</div></div>
+        <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}>
+          <div style={{ color: C.textMuted, fontSize: 10 }}>CUOTA {loan.actualPayment ? "REAL" : "MENSUAL"}</div>
+          <div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{fmt(effectivePmt)}</div>
+          {loan.actualPayment && loan.actualPayment !== pmt && <div style={{ color: C.textMuted, fontSize: 10 }}>Calculada: {fmt(pmt)}</div>}
+        </div>
+        <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>CUOTAS REST.</div><div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{remaining} de {loan.totalInstallments}</div></div>
+        <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL INTERÉS</div><div style={{ color: C.accentRed, fontWeight: 800, fontSize: 16 }}>{fmt(totalInterest)}</div></div>
+      </div>
+      {otherCosts > 0 && (
+        <div style={{ background: C.accentYellow + "10", border: `1px solid ${C.accentYellow}33`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}><span style={{ color: C.textMuted }}>Cuota base</span><span style={{ color: C.text, fontWeight: 600 }}>{fmt(pmt)}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 }}><span style={{ color: C.accentYellow, fontWeight: 700 }}>+ Otros costos</span><span style={{ color: C.accentYellow, fontWeight: 700 }}>{fmt(otherCosts)}</span></div>
+        </div>
+      )}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Progreso del crédito</span><span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmtPct(paidPct)}</span></div>
+        <Bar value={loan.paidInstallments} max={loan.totalInstallments} color={C.accentPurple} h={8} />
+      </div>
+      <AmortTable rows={rows} title={`Tabla de amortización: ${loan.name}`} color={C.accentPurple} />
+      {remaining > 0 && <button onClick={() => openPayModal(loan, pmt, currentBalance)} style={{ ...btnPrimary(C.accentPurple), width: "100%", marginTop: 12, fontSize: 13 }}>💸 Pagar cuota #{loan.paidInstallments + 1} — {fmt(loan.actualPayment || pmt)}</button>}
+      {remaining === 0 && <div style={{ textAlign: "center", color: C.accent, fontWeight: 800, marginTop: 12 }}>✅ Crédito cancelado</div>}
+    </Box>
+  );
+};
+
 // ── DEUDAS ────────────────────────────────────────────────────────────────────
 const Deudas = ({ state, setState }) => {
   const [tab, setTab] = useState("cards");
@@ -951,6 +1072,8 @@ const Deudas = ({ state, setState }) => {
     setVarPayModal(null);
     setVarPayForm({ capital: "", interest: "", others: "", date: getToday() });
   };
+
+  const addLoan = () => {
     if (!loanForm.name || !loanForm.principal) return;
     const newLoan = {
       id: Date.now(),
@@ -1397,164 +1520,7 @@ const Deudas = ({ state, setState }) => {
           </Box>
         )}
 
-        {state.loans.map(loan => {
-          const member = state.members.find(m => m.id === loan.holder);
-          const isVar = !!loan.isVariable;
-          const remaining = loan.totalInstallments - loan.paidInstallments;
-          const linkedBill = (state.fixedBills || []).find(b => b.fromLoanId === loan.id);
-
-          // Variable loan display
-          if (isVar) {
-            const liveBal = loan.currentBalance ?? loan.principal;
-            const history = loan.paymentHistory || [];
-            const totalPaidCapital = history.reduce((s, p) => s + p.capital, 0);
-            const totalPaidInterest = history.reduce((s, p) => s + p.interest, 0);
-            const totalPaidOthers = history.reduce((s, p) => s + p.others, 0);
-            const paidPct = Math.min(100, (totalPaidCapital / loan.principal) * 100);
-            return (
-              <Box key={loan.id}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div>
-                      <Tag color={C.accentPurple}>Cuota variable</Tag>
-                    </div>
-                    <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name}</div>
-                    {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}</div>}
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️</button>
-                    <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                  <div style={{ background: C.accentPurple + "10", borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>SALDO ACTUAL</div><div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 18 }}>{fmt(liveBal)}</div></div>
-                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>PAGOS REGISTRADOS</div><div style={{ color: C.text, fontWeight: 800, fontSize: 18 }}>{history.length}</div></div>
-                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL CAPITAL PAGADO</div><div style={{ color: C.accent, fontWeight: 700, fontSize: 14 }}>{fmt(totalPaidCapital)}</div></div>
-                  <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL INTERESES</div><div style={{ color: C.accentRed, fontWeight: 700, fontSize: 14 }}>{fmt(totalPaidInterest)}</div></div>
-                </div>
-
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ color: C.textMuted, fontSize: 12 }}>Capital pagado vs original</span>
-                    <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmtPct(paidPct)}</span>
-                  </div>
-                  <Bar value={totalPaidCapital} max={loan.principal} color={C.accentPurple} h={8} />
-                </div>
-
-                {/* Payment history */}
-                {history.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ color: C.text, fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Historial de pagos</div>
-                    <div style={{ borderRadius: 10, border: `1px solid ${C.border}`, overflow: "hidden" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                        <thead>
-                          <tr style={{ background: C.surfaceAlt }}>
-                            {["Fecha", "Capital", "Interés", "Otros", "Total"].map(h => (
-                              <th key={h} style={{ padding: "7px 6px", color: C.textMuted, fontWeight: 600, textAlign: "right", borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {[...history].reverse().map((p, i) => (
-                            <tr key={p.id} style={{ background: i % 2 === 0 ? C.surface : C.surfaceAlt, borderBottom: `1px solid ${C.border}` }}>
-                              <td style={{ padding: "7px 6px", color: C.textMuted, textAlign: "right" }}>{p.date?.slice(5)}</td>
-                              <td style={{ padding: "7px 6px", color: C.accent, textAlign: "right", fontWeight: 600 }}>{fmtShort(p.capital)}</td>
-                              <td style={{ padding: "7px 6px", color: C.accentRed, textAlign: "right" }}>{fmtShort(p.interest)}</td>
-                              <td style={{ padding: "7px 6px", color: C.accentYellow, textAlign: "right" }}>{fmtShort(p.others)}</td>
-                              <td style={{ padding: "7px 6px", color: C.text, textAlign: "right", fontWeight: 700 }}>{fmtShort(p.total)}</td>
-                            </tr>
-                          ))}
-                          <tr style={{ background: C.surfaceAlt }}>
-                            <td style={{ padding: "7px 6px", color: C.text, fontWeight: 700, textAlign: "right" }}>Total</td>
-                            <td style={{ padding: "7px 6px", color: C.accent, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidCapital)}</td>
-                            <td style={{ padding: "7px 6px", color: C.accentRed, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidInterest)}</td>
-                            <td style={{ padding: "7px 6px", color: C.accentYellow, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidOthers)}</td>
-                            <td style={{ padding: "7px 6px", color: C.text, fontWeight: 700, textAlign: "right" }}>{fmtShort(totalPaidCapital + totalPaidInterest + totalPaidOthers)}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                <button onClick={() => { setVarPayModal(loan.id); setVarPayForm({ capital: "", interest: "", others: "", date: getToday() }); }}
-                  style={{ ...btnPrimary(C.accentPurple), width: "100%", fontSize: 13 }}>
-                  💸 Registrar pago del mes (desde el extracto)
-                </button>
-              </Box>
-            );
-          }
-
-          // Standard loan display
-          const { rows, pmt } = buildLoanAmortization(loan.principal, loan.rate, loan.totalInstallments, loan.paidInstallments);
-          const remaining = loan.totalInstallments - loan.paidInstallments;
-          const currentBalance = loan.paidInstallments > 0
-            ? (rows[loan.paidInstallments - 1]?.balance || 0)
-            : loan.principal;
-          const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
-          const paidPct = (loan.paidInstallments / loan.totalInstallments) * 100;
-          const effectivePmt = loan.actualPayment || pmt;
-          const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - pmt) : 0;
-          const linkedBill = (state.fixedBills || []).find(b => b.fromLoanId === loan.id);
-
-          return (
-            <Box key={loan.id}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                <div>
-                  <div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{loan.name}</div>
-                  <div style={{ color: C.textMuted, fontSize: 12 }}>{loan.bank} · {member?.emoji} {member?.name} · Tasa {loan.rate}% mensual</div>
-                  {linkedBill && <div style={{ color: C.accentBlue, fontSize: 11, marginTop: 2 }}>📅 En calendario — día {linkedBill.dueDay}{loan.nextPaymentDate ? ` · Próximo pago: ${loan.nextPaymentDate}` : ""}</div>}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️ Editar</button>
-                  <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>SALDO ACTUAL</div><div style={{ color: C.accentPurple, fontWeight: 800, fontSize: 16 }}>{fmt(currentBalance)}</div></div>
-                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}>
-                  <div style={{ color: C.textMuted, fontSize: 10 }}>CUOTA {loan.actualPayment ? "REAL" : "MENSUAL"}</div>
-                  <div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{fmt(effectivePmt)}</div>
-                  {loan.actualPayment && loan.actualPayment !== pmt && <div style={{ color: C.textMuted, fontSize: 10 }}>Calculada: {fmt(pmt)}</div>}
-                </div>
-                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>CUOTAS REST.</div><div style={{ color: C.text, fontWeight: 800, fontSize: 16 }}>{remaining} de {loan.totalInstallments}</div></div>
-                <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: 10 }}><div style={{ color: C.textMuted, fontSize: 10 }}>TOTAL INTERÉS</div><div style={{ color: C.accentRed, fontWeight: 800, fontSize: 16 }}>{fmt(totalInterest)}</div></div>
-              </div>
-
-              {/* Other costs breakdown */}
-              {otherCosts > 0 && (
-                <div style={{ background: C.accentYellow + "10", border: `1px solid ${C.accentYellow}33`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ color: C.textMuted }}>Cuota base</span><span style={{ color: C.text, fontWeight: 600 }}>{fmt(pmt)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 }}>
-                    <span style={{ color: C.accentYellow, fontWeight: 700 }}>+ Otros costos (seguros, etc.)</span><span style={{ color: C.accentYellow, fontWeight: 700 }}>{fmt(otherCosts)}</span>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Progreso del crédito</span>
-                  <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmtPct(paidPct)}</span>
-                </div>
-                <Bar value={loan.paidInstallments} max={loan.totalInstallments} color={C.accentPurple} h={8} />
-              </div>
-
-              <AmortTable rows={rows} title={`Tabla de amortización: ${loan.name}`} color={C.accentPurple} />
-
-              {remaining > 0 && (
-                <button onClick={() => openPayModal(loan, pmt, currentBalance)} style={{ ...btnPrimary(C.accentPurple), width: "100%", marginTop: 12, fontSize: 13 }}>
-                  💸 Pagar cuota #{loan.paidInstallments + 1} — {fmt(loan.actualPayment || pmt)}
-                </button>
-              )}
-              {remaining === 0 && <div style={{ textAlign: "center", color: C.accent, fontWeight: 800, marginTop: 12 }}>✅ Crédito cancelado</div>}
-            </Box>
-          );
-        })}
+        {state.loans.map(loan => <LoanCard key={loan.id} loan={loan} state={state} openEditLoan={openEditLoan} deleteLoan={deleteLoan} openPayModal={openPayModal} setVarPayModal={setVarPayModal} setVarPayForm={setVarPayForm} />)}
       </>)}
     </div>
   );
