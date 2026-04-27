@@ -2036,7 +2036,15 @@ const HogarTab = ({ state, setState, user }) => {
   const [copied, setCopied] = useState(false);
   const [removing, setRemoving] = useState(false);
 
+  // Guard — if state not ready yet
+  if (!state) return <div style={{ color: C.textMuted, padding: 20, textAlign: "center" }}>Cargando...</div>;
+
+  const members = state.members || [];
+  const totalMembers = members.length;
+  const currentUserEmail = user?.email || "";
+
   const copyCode = async () => {
+    if (!state.inviteCode) return;
     await navigator.clipboard.writeText(state.inviteCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -2046,15 +2054,13 @@ const HogarTab = ({ state, setState, user }) => {
     setRemoving(true);
     setState(s => ({
       ...s,
-      members: s.members.filter(m => m.uid !== memberToRemove.uid),
+      members: (s.members || []).filter(m => m.email !== memberToRemove.email),
       memberUids: (s.memberUids || []).filter(uid => uid !== memberToRemove.uid),
       memberEmails: (s.memberEmails || []).filter(email => email !== memberToRemove.email),
     }));
     setConfirmRemove(null);
     setRemoving(false);
   };
-
-  const totalMembers = (state.members || []).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2116,12 +2122,15 @@ const HogarTab = ({ state, setState, user }) => {
           Cualquier miembro puede eliminar a otro. No puedes eliminarte a ti mismo.
         </div>
 
-        {(state.members || []).map((m, idx) => {
-          const isMe = m.email === user?.email;
-          const isLast = totalMembers === 1;
-          const canRemove = !isMe && !isLast;
+        {members.length === 0 && (
+          <div style={{ color: C.textMuted, fontSize: 13, textAlign: "center", padding: 16 }}>Sin miembros registrados.</div>
+        )}
+
+        {members.map((m, idx) => {
+          const isMe = currentUserEmail && m.email === currentUserEmail;
+          const canRemove = !isMe && totalMembers > 1;
           return (
-            <div key={m.id} style={{
+            <div key={m.id || idx} style={{
               display: "flex", alignItems: "center", gap: 12, padding: "12px 0",
               borderBottom: idx < totalMembers - 1 ? `1px solid ${C.border}` : "none",
             }}>
@@ -2129,11 +2138,12 @@ const HogarTab = ({ state, setState, user }) => {
                 {m.emoji || "👤"}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{m.name}</div>
                   {isMe && <Tag color={C.accent}>Tú</Tag>}
                 </div>
                 {m.email && <div style={{ color: C.textMuted, fontSize: 11, marginTop: 1 }}>{m.email}</div>}
+                {!m.email && !m.uid && <div style={{ color: C.accentYellow, fontSize: 10, marginTop: 1 }}>⚠️ Miembro sin cuenta vinculada</div>}
               </div>
               {canRemove ? (
                 <button onClick={() => setConfirmRemove(m)} style={{
@@ -2145,7 +2155,7 @@ const HogarTab = ({ state, setState, user }) => {
                 </button>
               ) : (
                 <div style={{ color: C.textMuted, fontSize: 11, flexShrink: 0 }}>
-                  {isMe ? "Tú" : "Único"}
+                  {isMe ? "Tú" : totalMembers === 1 ? "Único" : ""}
                 </div>
               )}
             </div>
