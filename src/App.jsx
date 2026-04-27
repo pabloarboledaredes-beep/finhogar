@@ -1,7 +1,11 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { auth, db, googleProvider } from "./firebase";
 import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, onSnapshot, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
+import {
+  LoginScreen, OnboardingScreen, InviteCodeBanner,
+  SistemaPanel, useHogar
+} from "./multihogar.jsx";
 
 // ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
 const C = {
@@ -77,11 +81,16 @@ const INIT = {
   fixedBills: [],
 };
 
-// ── CORREOS AUTORIZADOS ───────────────────────────────────────────────────────
-const ALLOWED_EMAILS = [
-  "pabloarboleda.redes@gmail.com",
-  "lauratamayo1911@gmail.com",
-];
+// ── HELPERS DE MES ────────────────────────────────────────────────────────────
+function monthOf(dateStr) {
+  if (!dateStr) return "";
+  return dateStr.slice(0, 7);
+}
+function navigateMonth(ym, delta) {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 function getCurrentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -128,15 +137,10 @@ const NavBtn = ({ icon, label, active, onClick }) => (
 const Divider = () => <div style={{ height: 1, background: C.border, margin: "10px 0" }} />;
 const Label = ({ children }) => <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 5 }}>{children}</div>;
 
-// ── DATE PICKER — 3 selectores nativos, funciona igual en iPhone y desktop ────
+// ── DATE PICKER ───────────────────────────────────────────────────────────────
 const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-function dateToparts(iso) {
-  const [y, m, d] = iso.split("-");
-  return { d: parseInt(d,10), m: parseInt(m,10), y: parseInt(y,10) };
-}
-function partsToDays(m, y) {
-  return new Date(y, m, 0).getDate();
-}
+function dateToparts(iso) { const [y, m, d] = iso.split("-"); return { d: parseInt(d,10), m: parseInt(m,10), y: parseInt(y,10) }; }
+function partsToDays(m, y) { return new Date(y, m, 0).getDate(); }
 const DatePicker = ({ value, onChange }) => {
   const { d, m, y } = dateToparts(value);
   const maxDay = partsToDays(m, y);
@@ -147,15 +151,9 @@ const DatePicker = ({ value, onChange }) => {
   const update = (nd, nm, ny) => onChange(`${ny}-${pad(nm)}-${pad(Math.min(nd, partsToDays(nm, ny)))}`);
   return (
     <div style={{ display: "flex", gap: 6 }}>
-      <select value={d} onChange={e => update(+e.target.value, m, y)} style={sel}>
-        {days.map(n => <option key={n} value={n}>{pad(n)}</option>)}
-      </select>
-      <select value={m} onChange={e => update(d, +e.target.value, y)} style={{ ...sel, flex: 2 }}>
-        {MONTHS.map((name, i) => <option key={i+1} value={i+1}>{name}</option>)}
-      </select>
-      <select value={y} onChange={e => update(d, m, +e.target.value)} style={sel}>
-        {years.map(n => <option key={n} value={n}>{n}</option>)}
-      </select>
+      <select value={d} onChange={e => update(+e.target.value, m, y)} style={sel}>{days.map(n => <option key={n} value={n}>{pad(n)}</option>)}</select>
+      <select value={m} onChange={e => update(d, +e.target.value, y)} style={{ ...sel, flex: 2 }}>{MONTHS.map((name, i) => <option key={i+1} value={i+1}>{name}</option>)}</select>
+      <select value={y} onChange={e => update(d, m, +e.target.value)} style={sel}>{years.map(n => <option key={n} value={n}>{n}</option>)}</select>
     </div>
   );
 };
@@ -172,7 +170,7 @@ const AmortTable = ({ rows, title, color = C.accent }) => {
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead><tr style={{ background: C.surfaceAlt }}>
-                {["#", "Cuota", "Interés", "Capital", "Saldo"].map(h => <th key={h} style={{ padding: "8px 8px", color: C.textMuted, fontWeight: 600, textAlign: "right", borderBottom: `1.5px solid ${C.border}` }}>{h}</th>)}
+                {["#","Cuota","Interés","Capital","Saldo"].map(h => <th key={h} style={{ padding: "8px 8px", color: C.textMuted, fontWeight: 600, textAlign: "right", borderBottom: `1.5px solid ${C.border}` }}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {rows.map((r, i) => (
@@ -192,48 +190,6 @@ const AmortTable = ({ rows, title, color = C.accent }) => {
     </div>
   );
 };
-
-// ── ACCESS DENIED SCREEN ──────────────────────────────────────────────────────
-const AccessDenied = ({ user, onLogout }) => (
-  <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-    <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
-    <div style={{ fontSize: 22, fontWeight: 900, color: C.text, marginBottom: 8 }}>Acceso no autorizado</div>
-    <div style={{ color: C.textMuted, fontSize: 14, textAlign: "center", lineHeight: 1.6, marginBottom: 32, maxWidth: 300 }}>
-      El correo <strong style={{ color: C.accentRed }}>{user.email}</strong> no tiene permiso para acceder a NestGrow.<br /><br />
-      Esta app es de uso privado para Pablo y Laura.
-    </div>
-    <button onClick={onLogout} style={{ ...btnPrimary(C.accentRed), padding: "12px 28px", fontSize: 14 }}>
-      Cerrar sesión
-    </button>
-  </div>
-);
-const LoginScreen = ({ onLogin, loading }) => (
-  <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-    <div style={{ width: 60, height: 60, borderRadius: 16, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, marginBottom: 20 }}>🪺</div>
-    <div style={{ fontSize: 28, fontWeight: 900, color: C.text, letterSpacing: -0.5, marginBottom: 6 }}>NestGrow</div>
-    <div style={{ color: C.textMuted, fontSize: 14, marginBottom: 40, textAlign: "center" }}>El nido que crece 🪺<br />Pablo & Esposa</div>
-    <Box style={{ width: "100%", maxWidth: 340, textAlign: "center" }}>
-      <div style={{ color: C.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Bienvenidos 👋</div>
-      <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>Inicia sesión con tu cuenta Google para acceder a las finanzas del hogar.</div>
-      <button onClick={onLogin} disabled={loading} style={{ ...btnPrimary(), width: "100%", padding: "13px", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-        <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.1l-6.2-5.2C29.3 35.5 26.8 36 24 36c-5.1 0-9.6-3.2-11.3-7.8l-6.5 5C9.5 39.5 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.3 5.5l6.2 5.2C37 36.8 44 31 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>
-        {loading ? "Entrando..." : "Continuar con Google"}
-      </button>
-    </Box>
-    <div style={{ color: C.textMuted, fontSize: 11, marginTop: 24, textAlign: "center" }}>Solo Pablo y su esposa tienen acceso.<br />Los datos se sincronizan en tiempo real.</div>
-  </div>
-);
-
-// ── HELPERS DE MES ────────────────────────────────────────────────────────────
-function monthOf(dateStr) {
-  if (!dateStr) return "";
-  return dateStr.slice(0, 7); // "YYYY-MM"
-}
-function navigateMonth(ym, delta) {
-  const [y, m] = ym.split("-").map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 const Dashboard = ({ state }) => {
@@ -2161,6 +2117,7 @@ const Configuracion = ({ state, setState }) => {
         {tabBtn("usuarios", "Usuarios", "👥")}
         {tabBtn("tarjetas", "Tarjetas", "💳")}
         {tabBtn("saldos", "Saldos", "🏦")}
+        {tabBtn("hogar", "Hogar", "🏡")}
       </div>
 
       {/* ── PESTAÑA USUARIOS ── */}
@@ -2383,55 +2340,71 @@ const Configuracion = ({ state, setState }) => {
           </Box>
         </div>
       )}
+
+      {/* ── PESTAÑA HOGAR ── */}
+      {configTab === "hogar" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Box style={{ borderColor: C.accent + "44", background: C.accent + "06" }}>
+            <div style={{ color: C.accent, fontWeight: 800, fontSize: 15, marginBottom: 4 }}>🏡 {state.nombre || "Mi Hogar"}</div>
+            <div style={{ color: C.textMuted, fontSize: 12 }}>Gestiona el acceso a tu hogar</div>
+          </Box>
+
+          {state.inviteCode && (
+            <Box>
+              <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>🔑 Código de invitación</div>
+              <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 16, textAlign: "center", marginBottom: 12 }}>
+                <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 6, color: C.accent }}>{state.inviteCode}</div>
+              </div>
+              <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+                Comparte este código con alguien para que se una a tu hogar.
+              </div>
+              <button onClick={() => navigator.clipboard.writeText(state.inviteCode)} style={{ ...btnPrimary(), width: "100%" }}>
+                📋 Copiar código
+              </button>
+            </Box>
+          )}
+
+          <Box>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>👥 Miembros del hogar</div>
+            {(state.members || []).map(m => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: (m.color || C.accent) + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{m.emoji || "👤"}</div>
+                <div>
+                  <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{m.name}</div>
+                  {m.email && <div style={{ color: C.textMuted, fontSize: 11 }}>{m.email}</div>}
+                </div>
+              </div>
+            ))}
+          </Box>
+
+          <Box style={{ background: C.accentBlue + "08", borderColor: C.accentBlue + "33" }}>
+            <div style={{ color: C.accentBlue, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>🔒 Privacidad de tus datos</div>
+            <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.7 }}>
+              Tus datos están protegidos por reglas de seguridad en Firestore. Solo los miembros de tu hogar pueden verlos. Ni el creador de la app tiene acceso.
+            </div>
+          </Box>
+        </div>
+      )}
     </div>
   );
 };
 
+// ── ROOT APP WITH MULTI-HOGAR ─────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
-  const [state, setStateLocal] = useState(INIT);
-  const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState("dashboard");
+  const [showSistema, setShowSistema] = useState(false);
 
   // Auth listener
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); });
+    const unsub = onAuthStateChanged(auth, u => { setUser(u); setAuthLoading(false); });
     return unsub;
   }, []);
 
-  // Firestore real-time listener — fires every time ANY user saves data
-  useEffect(() => {
-    if (!user) return;
-    const docRef = doc(db, "hogar", "finhogar");
-    const unsub = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        setStateLocal(prev => ({ ...INIT, ...snap.data() }));
-      } else {
-        // First time: write initial state
-        setDoc(docRef, INIT);
-      }
-    });
-    return unsub;
-  }, [user]);
-
-  // Debounced save to Firestore on every state change
-  const saveTimeout = useState(null);
-  const setState = useCallback((updater) => {
-    setStateLocal(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      // Save to Firestore (debounced 600ms)
-      if (saveTimeout[0]) clearTimeout(saveTimeout[0]);
-      saveTimeout[0] = setTimeout(() => {
-        setSyncing(true);
-        setDoc(doc(db, "hogar", "finhogar"), next)
-          .then(() => setSyncing(false))
-          .catch(() => setSyncing(false));
-      }, 600);
-      return next;
-    });
-  }, []);
+  // Multi-hogar hook
+  const { hogarId, hogarData, userProfile, loading, syncing, saveHogar, newHogarCode, onHogarReady, dismissNewHogar } = useHogar(user);
 
   const handleLogin = async () => {
     setLoginLoading(true);
@@ -2442,18 +2415,24 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
-  if (authLoading) return (
-    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ color: C.textMuted, fontSize: 14 }}>Cargando...</div>
+  // Loading states
+  if (authLoading || (user && loading)) return (
+    <div style={{ minHeight: "100vh", background: "#F7F8FA", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 36 }}>🪺</div>
+      <div style={{ color: "#6B7280", fontSize: 14 }}>Cargando NestGrow...</div>
     </div>
   );
 
   if (!user) return <LoginScreen onLogin={handleLogin} loading={loginLoading} />;
 
-  // ── Verificar correo autorizado ──────────────────────────────────────────────
-  if (!ALLOWED_EMAILS.includes(user.email)) {
-    return <AccessDenied user={user} onLogout={handleLogout} />;
-  }
+  // Needs onboarding — no hogar yet
+  if (!hogarId || !hogarData) return (
+    <OnboardingScreen user={user} onHogarReady={onHogarReady} onLogout={handleLogout} />
+  );
+
+  // Use hogarData as state, saveHogar as setState
+  const state = hogarData;
+  const setState = saveHogar;
 
   const nav = [
     { id: "dashboard", icon: "🏠", label: "Inicio" },
@@ -2469,37 +2448,61 @@ export default function App() {
   const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, calendario: Calendario, asesor: Asesor, config: Configuracion };
   const View = views[tab];
 
+  const isCreator = user.email === "pabloarboleda.redes@gmail.com";
+
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'DM Sans', -apple-system, sans-serif", color: C.text, display: "flex", flexDirection: "column", maxWidth: 520, margin: "0 auto" }}>
+    <div style={{ minHeight: "100vh", background: "#F7F8FA", fontFamily: "'DM Sans', -apple-system, sans-serif", color: "#0F1623", display: "flex", flexDirection: "column", maxWidth: 520, margin: "0 auto" }}>
+
+      {/* Invite code banner after creating hogar */}
+      {newHogarCode && (
+        <InviteCodeBanner
+          code={newHogarCode}
+          hogarNombre={hogarData.nombre || "tu hogar"}
+          onDismiss={dismissNewHogar}
+        />
+      )}
+
+      {/* Sistema panel */}
+      {showSistema && <SistemaPanel user={user} onClose={() => setShowSistema(false)} />}
+
       {/* Header */}
-      <div style={{ padding: "12px 18px 10px", background: C.surface, borderBottom: `1.5px solid ${C.border}`, position: "sticky", top: 0, zIndex: 10, boxShadow: "0 1px 0 rgba(0,0,0,0.04)" }}>
+      <div style={{ padding: "12px 18px 10px", background: "#FFFFFF", borderBottom: "1.5px solid #E2E6ED", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 1px 0 rgba(0,0,0,0.04)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🪺</div>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: "#1A7CF4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🪺</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>NestGrow</div>
-              <div style={{ fontSize: 10, color: C.textMuted, display: "flex", alignItems: "center", gap: 4 }}>
-                {user.displayName?.split(" ")[0] || user.email}
-                {syncing && <span style={{ color: C.accentBlue }}>· guardando...</span>}
-                {!syncing && <span style={{ color: C.accent }}>· ✓ sincronizado</span>}
+              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: -0.3 }}>
+                NestGrow
+                {isCreator && (
+                  <button onClick={() => setShowSistema(true)} style={{ marginLeft: 8, background: "#1A7CF408", border: "1px solid #1A7CF433", borderRadius: 6, padding: "2px 7px", fontSize: 10, color: "#1A7CF4", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>
+                    SISTEMA
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: 10, color: "#6B7280", display: "flex", alignItems: "center", gap: 4 }}>
+                {hogarData.nombre || user.displayName?.split(" ")[0]}
+                {syncing
+                  ? <span style={{ color: "#1A7CF4" }}>· guardando...</span>
+                  : <span style={{ color: "#059669" }}>· ✓ sincronizado</span>
+                }
               </div>
             </div>
           </div>
-          <button onClick={handleLogout} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "5px 10px", color: C.textMuted, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Salir</button>
+          <button onClick={handleLogout} style={{ background: "none", border: "1px solid #E2E6ED", borderRadius: 8, padding: "5px 10px", color: "#6B7280", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Salir</button>
         </div>
       </div>
 
-      {/* Content — paddingBottom accounts for nav bar height + safe area */}
+      {/* Content */}
       <div style={{ flex: 1, padding: "18px 14px 0", paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))", overflowY: "auto" }}>
         <View state={state} setState={setState} />
       </div>
 
-      {/* Bottom Nav — fixed at very bottom, respects iPhone home indicator */}
+      {/* Bottom Nav */}
       <div style={{
         position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
-        width: "100%", maxWidth: 520, background: C.surface,
-        borderTop: `1.5px solid ${C.border}`,
-        paddingTop: 6, paddingBottom: `calc(8px + env(safe-area-inset-bottom, 0px))`,
+        width: "100%", maxWidth: 520, background: "#FFFFFF",
+        borderTop: "1.5px solid #E2E6ED",
+        paddingTop: 6, paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
         display: "flex", justifyContent: "space-around", zIndex: 100,
         boxShadow: "0 -2px 12px rgba(0,0,0,0.06)",
       }}>
