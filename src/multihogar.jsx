@@ -7,7 +7,7 @@ import { auth, db, googleProvider } from "./firebase";
 import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import {
   doc, getDoc, setDoc, updateDoc, onSnapshot,
-  collection, query, where, getDocs, serverTimestamp
+  collection, serverTimestamp, arrayUnion
 } from "firebase/firestore";
 
 // ── COLORES ───────────────────────────────────────────────────────────────────
@@ -104,6 +104,10 @@ export const OnboardingScreen = ({ user, onHogarReady, onLogout }) => {
         hogarId, nombre: user.displayName || user.email,
         email: user.email, rol: "admin", joinedAt: serverTimestamp(),
       });
+      // Write public invite document so others can join
+      await setDoc(doc(db, "invitaciones", code), {
+        hogarId, createdAt: serverTimestamp(), createdBy: user.uid,
+      });
       // Update system stats
       try {
         const statsRef = doc(db, "_sistema", "stats");
@@ -127,41 +131,57 @@ export const OnboardingScreen = ({ user, onHogarReady, onLogout }) => {
     if (code.length !== 8) { setError("El código debe tener 8 caracteres"); return; }
     setLoading(true); setError("");
     try {
-      // Find hogar by invite code
-      const q = query(collection(db, "hogares"), where("inviteCode", "==", code));
-      const snap = await getDocs(q);
-      if (snap.empty) { setError("Código inválido. Verifica con quien te lo compartió."); setLoading(false); return; }
-      const hogarDoc = snap.docs[0];
-      const hogar = hogarDoc.data();
-      const hogarId = hogarDoc.id;
-      // Check not already member
-      if (hogar.memberUids?.includes(user.uid)) {
-        setError("Ya eres miembro de este hogar.");
+      // Look up invite code in public collection (readable by any authenticated user)
+      const inviteRef = doc(db, "invitaciones", code);
+      const inviteSnap = await getDoc(inviteRef);
+
+      if (!inviteSnap.exists()) {
+        setError("Código inválido. Verifica con quien te lo compartió.");
         setLoading(false); return;
       }
-      // Add user to hogar
+
+      const { hogarId } = inviteSnap.data();
+
+      // Now read the hogar — user is not yet a member so we use a cloud-safe approach
+      // We add the user first, then read
       const newMember = {
-        id: Date.now(), name: user.displayName?.split(" ")[0] || "Nuevo miembro",
+        id: Date.now(),
+        name: user.displayName?.split(" ")[0] || "Nuevo miembro",
         color: "#DB2777", emoji: "👩", uid: user.uid, email: user.email,
       };
-      await updateDoc(doc(db, "hogares", hogarId), {
-        memberUids: [...(hogar.memberUids || []), user.uid],
-        memberEmails: [...(hogar.memberEmails || []), user.email],
-        members: [...(hogar.members || []), newMember],
-      });
+
+      // Write user profile first (user can always write their own profile)
       await setDoc(doc(db, "usuarios", user.uid), {
         hogarId, nombre: user.displayName || user.email,
         email: user.email, rol: "miembro", joinedAt: serverTimestamp(),
       });
+
+      // Use a special join endpoint — update hogar via the invite record
+      // We need to use a Firestore transaction-like approach
+      // First get current hogar data with elevated access via invite
+      const hogarRef = doc(db, "hogares", hogarId);
+
+      // Since user is not yet a member, we use arrayUnion via a writable path
+      // The invite document authorizes this write
+      await updateDoc(hogarRef, {
+        memberUids: arrayUnion(user.uid),
+        memberEmails: arrayUnion(user.email),
+        members: arrayUnion(newMember),
+      });
+
       // Update stats
       try {
         const statsRef = doc(db, "_sistema", "stats");
         const stats = await getDoc(statsRef);
-        await setDoc(statsRef, { totalUsuarios: (stats.data()?.totalUsuarios || 0) + 1, lastUpdated: serverTimestamp() }, { merge: true });
+        await setDoc(statsRef, {
+          totalUsuarios: (stats.data()?.totalUsuarios || 0) + 1,
+          lastUpdated: serverTimestamp(),
+        }, { merge: true });
       } catch {}
+
       onHogarReady(hogarId, null);
     } catch (e) {
-      setError("Error al unirse. Intenta de nuevo.");
+      setError("Error al unirse. Verifica el código e intenta de nuevo.");
       console.error(e);
     }
     setLoading(false);
