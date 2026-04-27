@@ -2031,7 +2031,7 @@ Por favor dame consejos concretos, accionables y con números específicos basad
 
 // ── ROOT APP WITH FIREBASE ────────────────────────────────────────────────────
 // ── CONFIGURACION ─────────────────────────────────────────────────────────────
-const Configuracion = ({ state, setState }) => {
+const Configuracion = ({ state, setState, user }) => {
   const [configTab, setConfigTab] = useState("usuarios");
   const [memberForms, setMemberForms] = useState(state.members.map(m => ({ ...m })));
   const [savedMsg, setSavedMsg] = useState(null);
@@ -2342,49 +2342,168 @@ const Configuracion = ({ state, setState }) => {
       )}
 
       {/* ── PESTAÑA HOGAR ── */}
-      {configTab === "hogar" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Box style={{ borderColor: C.accent + "44", background: C.accent + "06" }}>
-            <div style={{ color: C.accent, fontWeight: 800, fontSize: 15, marginBottom: 4 }}>🏡 {state.nombre || "Mi Hogar"}</div>
-            <div style={{ color: C.textMuted, fontSize: 12 }}>Gestiona el acceso a tu hogar</div>
-          </Box>
+      {configTab === "hogar" && (() => {
+        const [confirmRemove, setConfirmRemove] = useState(null); // uid to remove
+        const [copied, setCopied] = useState(false);
+        const [removing, setRemoving] = useState(false);
 
-          {state.inviteCode && (
-            <Box>
-              <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>🔑 Código de invitación</div>
-              <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 16, textAlign: "center", marginBottom: 12 }}>
-                <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 6, color: C.accent }}>{state.inviteCode}</div>
-              </div>
-              <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
-                Comparte este código con alguien para que se una a tu hogar.
-              </div>
-              <button onClick={() => navigator.clipboard.writeText(state.inviteCode)} style={{ ...btnPrimary(), width: "100%" }}>
-                📋 Copiar código
-              </button>
-            </Box>
-          )}
+        const copyCode = async () => {
+          await navigator.clipboard.writeText(state.inviteCode);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        };
 
-          <Box>
-            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>👥 Miembros del hogar</div>
-            {(state.members || []).map(m => (
-              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                <div style={{ width: 36, height: 36, borderRadius: 10, background: (m.color || C.accent) + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{m.emoji || "👤"}</div>
-                <div>
-                  <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{m.name}</div>
-                  {m.email && <div style={{ color: C.textMuted, fontSize: 11 }}>{m.email}</div>}
+        const removeMember = async (memberToRemove) => {
+          setRemoving(true);
+          try {
+            // Remove from hogar members array and memberUids/memberEmails
+            setState(s => ({
+              ...s,
+              members: s.members.filter(m => m.uid !== memberToRemove.uid),
+              memberUids: (s.memberUids || []).filter(uid => uid !== memberToRemove.uid),
+              memberEmails: (s.memberEmails || []).filter(email => email !== memberToRemove.email),
+            }));
+            setConfirmRemove(null);
+          } catch (e) {
+            console.error("Error removing member:", e);
+          }
+          setRemoving(false);
+        };
+
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+            {/* Confirm removal modal */}
+            {confirmRemove && (
+              <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+                <div style={{ background: C.surface, borderRadius: 20, padding: 24, maxWidth: 320, width: "100%", textAlign: "center" }}>
+                  <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
+                  <div style={{ color: C.text, fontWeight: 800, fontSize: 16, marginBottom: 8 }}>¿Eliminar miembro?</div>
+                  <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
+                    Vas a eliminar a <strong style={{ color: C.accentRed }}>{confirmRemove.name}</strong> del hogar.<br />
+                    Ya no podrá acceder a los datos del hogar.<br />
+                    <span style={{ fontSize: 11 }}>Esta acción no se puede deshacer.</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => removeMember(confirmRemove)}
+                      disabled={removing}
+                      style={{ ...btnPrimary(C.accentRed), flex: 1, padding: "12px" }}
+                    >
+                      {removing ? "Eliminando..." : "Sí, eliminar"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmRemove(null)}
+                      style={{ ...btnGhost, flex: 1, padding: "12px" }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               </div>
-            ))}
-          </Box>
+            )}
 
-          <Box style={{ background: C.accentBlue + "08", borderColor: C.accentBlue + "33" }}>
-            <div style={{ color: C.accentBlue, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>🔒 Privacidad de tus datos</div>
-            <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.7 }}>
-              Tus datos están protegidos por reglas de seguridad en Firestore. Solo los miembros de tu hogar pueden verlos. Ni el creador de la app tiene acceso.
-            </div>
-          </Box>
-        </div>
-      )}
+            {/* Hogar name */}
+            <Box style={{ borderColor: C.accent + "44", background: C.accent + "06" }}>
+              <div style={{ color: C.accent, fontWeight: 800, fontSize: 16, marginBottom: 2 }}>🏡 {state.nombre || "Mi Hogar"}</div>
+              <div style={{ color: C.textMuted, fontSize: 12 }}>{(state.memberUids || []).length} miembro(s) · Plan {state.plan || "gratuito"}</div>
+            </Box>
+
+            {/* Invite code */}
+            {state.inviteCode && (
+              <Box>
+                <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>🔑 Código de invitación</div>
+                <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 16, textAlign: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: 6, color: C.accent, fontFamily: "monospace" }}>
+                    {state.inviteCode}
+                  </div>
+                </div>
+                <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+                  Comparte este código con alguien para que se una a tu hogar. Cualquier persona con este código y una cuenta Google puede unirse.
+                </div>
+                <button onClick={copyCode} style={{
+                  ...btnPrimary(copied ? C.accent : C.surfaceAlt, copied ? "#fff" : C.text),
+                  border: `1.5px solid ${copied ? C.accent : C.border}`,
+                  width: "100%", padding: "11px",
+                }}>
+                  {copied ? "✓ Código copiado" : "📋 Copiar código"}
+                </button>
+              </Box>
+            )}
+
+            {/* Members list with remove */}
+            <Box>
+              <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 4 }}>👥 Miembros del hogar</div>
+              <div style={{ color: C.textMuted, fontSize: 11, marginBottom: 12 }}>
+                Cualquier miembro puede eliminar a otro, excepto eliminarse a sí mismo.
+              </div>
+              {(state.members || []).length === 0 && (
+                <div style={{ color: C.textMuted, fontSize: 13 }}>Sin miembros registrados.</div>
+              )}
+              {(state.members || []).map((m, idx) => {
+                const isMe = m.uid === state.memberUids?.find(uid => uid === m.uid) && m.email === user?.email;
+                const isLast = (state.members || []).length === 1;
+                return (
+                  <div key={m.id} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "12px 0",
+                    borderBottom: idx < (state.members || []).length - 1 ? `1px solid ${C.border}` : "none",
+                  }}>
+                    {/* Avatar */}
+                    <div style={{
+                      width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+                      background: (m.color || C.accent) + "18",
+                      display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22,
+                    }}>
+                      {m.emoji || "👤"}
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ color: C.text, fontWeight: 700, fontSize: 14 }}>{m.name}</div>
+                        {isMe && <Tag color={C.accent}>Tú</Tag>}
+                      </div>
+                      {m.email && <div style={{ color: C.textMuted, fontSize: 11, marginTop: 1 }}>{m.email}</div>}
+                      {!m.uid && <div style={{ color: C.accentYellow, fontSize: 10, marginTop: 1 }}>⚠️ Sin cuenta vinculada</div>}
+                    </div>
+
+                    {/* Remove button — can't remove yourself or last member */}
+                    {!isMe && !isLast && (
+                      <button
+                        onClick={() => setConfirmRemove(m)}
+                        style={{
+                          background: C.accentRed + "10", border: `1px solid ${C.accentRed}33`,
+                          color: C.accentRed, borderRadius: 8, padding: "6px 12px",
+                          fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                          flexShrink: 0,
+                        }}
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                    {isMe && (
+                      <div style={{ color: C.textMuted, fontSize: 11, flexShrink: 0 }}>Admin</div>
+                    )}
+                    {isLast && !isMe && (
+                      <div style={{ color: C.textMuted, fontSize: 11, flexShrink: 0 }}>Último</div>
+                    )}
+                  </div>
+                );
+              })}
+            </Box>
+
+            {/* Privacy note */}
+            <Box style={{ background: C.accentBlue + "08", borderColor: C.accentBlue + "33" }}>
+              <div style={{ color: C.accentBlue, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>🔒 Privacidad de tus datos</div>
+              <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.7 }}>
+                Tus datos están cifrados y protegidos por reglas de seguridad en Firestore. Solo los miembros de tu hogar pueden verlos. Ni el creador de NestGrow tiene acceso a la información de tu hogar.
+              </div>
+            </Box>
+
+          </div>
+        );
+      })()}
     </div>
   );
 };
@@ -2447,6 +2566,7 @@ export default function App() {
 
   const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, calendario: Calendario, asesor: Asesor, config: Configuracion };
   const View = views[tab];
+  const viewProps = tab === "config" ? { state, setState, user } : { state, setState };
 
   const isCreator = user.email === "pabloarboleda.redes@gmail.com";
 
@@ -2494,7 +2614,7 @@ export default function App() {
 
       {/* Content */}
       <div style={{ flex: 1, padding: "18px 14px 0", paddingBottom: "calc(72px + env(safe-area-inset-bottom, 0px))", overflowY: "auto" }}>
-        <View state={state} setState={setState} />
+        <View {...viewProps} />
       </div>
 
       {/* Bottom Nav */}
