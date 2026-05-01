@@ -990,6 +990,8 @@ const Deudas = ({ state, setState }) => {
     setPastModal(null);
     setPastForm({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() });
   };
+
+  const openEditLoan = (loan) => {
     setEditLoan(loan.id);
     setEditLoanForm({ name: loan.name, bank: loan.bank, principal: String(loan.principal), rate: String(loan.rate), totalInstallments: String(loan.totalInstallments), actualPayment: loan.actualPayment ? String(loan.actualPayment) : "", dueDay: loan.dueDay || "", nextPaymentDate: loan.nextPaymentDate || "", extraAmount: "", isVariable: !!loan.isVariable });
   };
