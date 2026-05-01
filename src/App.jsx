@@ -819,6 +819,10 @@ const Deudas = ({ state, setState }) => {
   const [editPurchase, setEditPurchase] = useState(null); // { cardId, purchase }
   const [editPurchaseForm, setEditPurchaseForm] = useState({ desc: "", amount: "", installments: 1, zeroInterest: false, date: "" });
 
+  // Compras pasadas — no afectan el flujo del mes actual
+  const [pastModal, setPastModal] = useState(null); // cardId
+  const [pastForm, setPastForm] = useState({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() });
+
   // Edit loan modal
   const [editLoan, setEditLoan] = useState(null);
   const [editLoanForm, setEditLoanForm] = useState({ name: "", bank: "", principal: "", rate: "", totalInstallments: "", actualPayment: "", dueDay: "", nextPaymentDate: "", extraAmount: "", isVariable: false });
@@ -874,7 +878,35 @@ const Deudas = ({ state, setState }) => {
     setEditPurchase(null);
   };
 
-  const openEditLoan = (loan) => {
+  // ── COMPRA PASADA ─────────────────────────────────────────────────────────
+  // Registra una compra de un mes anterior. NO genera gasto (ya ocurrió),
+  // solo registra las cuotas restantes para control de deudas.
+  const savePastPurchase = () => {
+    const total = +pastForm.installments;
+    const paid = Math.min(+pastForm.paidInstallments || 0, total - 1);
+    if (!pastForm.desc || !pastForm.amount || !total || total < 1) return;
+
+    setState(s => ({
+      ...s,
+      cards: s.cards.map(c => c.id === pastModal ? {
+        ...c,
+        purchases: [...c.purchases, {
+          id: Date.now(),
+          desc: pastForm.desc,
+          amount: +pastForm.amount,
+          installments: total,
+          paidInstallments: paid,  // arranca desde la cuota paid+1
+          zeroInterest: pastForm.zeroInterest,
+          date: pastForm.date,
+          isPastPurchase: true,    // flag — no afecta gastos del mes
+        }]
+      } : c)
+      // 🔑 NO se toca expenses ni budgets — el gasto ya ocurrió en el pasado
+    }));
+
+    setPastModal(null);
+    setPastForm({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() });
+  };
     setEditLoan(loan.id);
     setEditLoanForm({ name: loan.name, bank: loan.bank, principal: String(loan.principal), rate: String(loan.rate), totalInstallments: String(loan.totalInstallments), actualPayment: loan.actualPayment ? String(loan.actualPayment) : "", dueDay: loan.dueDay || "", nextPaymentDate: loan.nextPaymentDate || "", extraAmount: "", isVariable: !!loan.isVariable });
   };
@@ -1192,6 +1224,99 @@ const Deudas = ({ state, setState }) => {
         );
       })()}
 
+      {/* Past Purchase Modal — compras de meses anteriores */}
+      {pastModal && (() => {
+        const card = state.cards.find(c => c.id === pastModal);
+        const total = +pastForm.installments || 0;
+        const paid = Math.min(+pastForm.paidInstallments || 0, Math.max(0, total - 1));
+        const remaining = total - paid;
+        const rate = pastForm.zeroInterest ? 0 : (card?.rate || 2);
+        const rows = total > 0 && pastForm.amount ? buildPurchaseAmortization(+pastForm.amount, total, rate) : [];
+        const nextRow = rows[paid];
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentOrange}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>📅 Compra de mes anterior</div>
+                <button onClick={() => setPastModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+              </div>
+              <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+                Esta compra <strong>no afectará el flujo ni el presupuesto</strong> del mes actual — solo registra las cuotas pendientes en Deudas.
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div><Label>Descripción de la compra</Label>
+                  <input placeholder="Ej: Televisor Samsung, Electrodoméstico..." value={pastForm.desc} onChange={e => setPastForm(f => ({ ...f, desc: e.target.value }))} style={inputSt} />
+                </div>
+                <div><Label>Valor total de la compra ($)</Label>
+                  <input type="number" placeholder="0" value={pastForm.amount} onChange={e => setPastForm(f => ({ ...f, amount: e.target.value }))} style={inputSt} />
+                </div>
+                <div><Label>Total de cuotas pactadas</Label>
+                  <input type="number" min="1" max="36" placeholder="Ej: 12" value={pastForm.installments} onChange={e => setPastForm(f => ({ ...f, installments: e.target.value }))} style={inputSt} />
+                </div>
+                {total > 0 && (
+                  <div>
+                    <Label>Cuotas ya pagadas</Label>
+                    <input type="number" min="0" max={total - 1} placeholder="0" value={pastForm.paidInstallments} onChange={e => setPastForm(f => ({ ...f, paidInstallments: e.target.value }))} style={inputSt} />
+                    <div style={{ color: C.accent, fontSize: 11, marginTop: 5, fontWeight: 600 }}>
+                      → Quedan <strong>{remaining}</strong> cuota(s) por pagar. La app arranca desde la cuota #{paid + 1}.
+                    </div>
+                  </div>
+                )}
+                <div><Label>Fecha de la compra original</Label>
+                  <DatePicker value={pastForm.date} onChange={v => setPastForm(f => ({ ...f, date: v }))} />
+                </div>
+
+                {/* Zero interest toggle */}
+                <button onClick={() => setPastForm(f => ({ ...f, zeroInterest: !f.zeroInterest }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${pastForm.zeroInterest ? C.accent : C.border}`, background: pastForm.zeroInterest ? C.accent + "10" : C.surfaceAlt, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${pastForm.zeroInterest ? C.accent : C.border}`, background: pastForm.zeroInterest ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {pastForm.zeroInterest && <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>}
+                  </div>
+                  <div>
+                    <div style={{ color: pastForm.zeroInterest ? C.accent : C.text, fontWeight: 700, fontSize: 13 }}>Sin intereses (0%)</div>
+                    <div style={{ color: C.textMuted, fontSize: 11 }}>{pastForm.zeroInterest ? "Cuotas iguales sin interés" : `Tasa de la tarjeta: ${card?.rate || 2}% mensual`}</div>
+                  </div>
+                </button>
+
+                {/* Preview of next due installment */}
+                {nextRow && remaining > 0 && (
+                  <div style={{ background: C.accentOrange + "08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>Vista previa de cuotas pendientes</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>Próxima cuota (#{paid + 1})</span>
+                      <span style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{fmt(nextRow.pmt)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
+                      <span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo pendiente</span>
+                      <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(rows[paid]?.balance || 0)}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ background: C.accentBlue + "08", border: `1px solid ${C.accentBlue}33`, borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ color: C.accentBlue, fontSize: 11, fontWeight: 600 }}>
+                    ✅ Esta compra aparecerá en Deudas → Tarjetas desde la cuota #{paid + 1} en adelante. El gasto ya ocurrió y no se registra en los gastos del mes actual.
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={savePastPurchase} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>
+                    Registrar compra pasada
+                  </button>
+                  <button onClick={() => setPastModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Edit Purchase Modal */}
       {editPurchase && (
         <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -1368,14 +1493,23 @@ const Deudas = ({ state, setState }) => {
           <Box key={card.id}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <div><div style={{ color: C.text, fontWeight: 800, fontSize: 15 }}>{card.name}</div><div style={{ color: C.textMuted, fontSize: 12 }}>{member?.emoji} {member?.name} · Tasa {card.rate}% · Cierre día {card.dueDate}</div></div>
-              <div style={{ textAlign: "right" }}><div style={{ color: C.accentOrange, fontWeight: 800 }}>{fmt(card.currentDue)}/mes</div><div style={{ color: C.textMuted, fontSize: 11 }}>Saldo: {fmt(card.totalBalance)}</div></div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ color: C.accentOrange, fontWeight: 800 }}>{fmt(card.currentDue)}/mes</div>
+                <div style={{ color: C.textMuted, fontSize: 11 }}>Saldo: {fmt(card.totalBalance)}</div>
+              </div>
             </div>
+            <button
+              onClick={() => { setPastModal(card.id); setPastForm({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() }); }}
+              style={{ ...btnPrimary(C.accentOrange + "CC", "#fff"), width: "100%", marginBottom: 14, fontSize: 12, padding: "9px", border: `1.5px dashed ${C.accentOrange}` }}
+            >
+              📅 Registrar compra de mes anterior
+            </button>
             <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Compras en cuotas:</div>
             {card.purchases.length === 0 && <div style={{ color: C.textMuted, fontSize: 12 }}>Sin compras registradas</div>}
             {card.purchases.map(p => { const effectiveRate = p.zeroInterest ? 0 : card.rate; const rows = buildPurchaseAmortization(p.amount, p.installments, effectiveRate); const remaining = p.installments - p.paidInstallments; const nextRow = rows[p.paidInstallments]; const totalInterest = rows.reduce((s, r) => s + r.interest, 0); const isDone = p.paidInstallments >= p.installments; return (
               <div key={p.id} style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 10, border: `1.5px solid ${isDone ? C.accent + "44" : C.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>{p.desc} {isDone && "✓"}{p.zeroInterest && <Tag color={C.accent}>0% interés</Tag>}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
+                  <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{p.desc} {isDone && "✓"}{p.zeroInterest && <Tag color={C.accent}>0% interés</Tag>}{p.isPastPurchase && <Tag color={C.textMuted}>Mes anterior</Tag>}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => openEditPurchase(card.id, p)} style={{ background: C.accent + "12", border: `1px solid ${C.accent}33`, color: C.accent, borderRadius: 7, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️</button>
                     <button onClick={() => deletePurchase(card.id, p.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
