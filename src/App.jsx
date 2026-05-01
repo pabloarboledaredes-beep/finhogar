@@ -290,9 +290,9 @@ const Dashboard = ({ state, setState }) => {
         <button onClick={() => setViewMonth(navigateMonth(viewMonth, 1))} disabled={isCurrentMonth} style={{ padding: "12px 18px", background: "none", border: "none", color: isCurrentMonth ? C.textSub : C.textMuted, cursor: isCurrentMonth ? "default" : "pointer", fontSize: 20, borderLeft: `1px solid ${C.border}` }}>›</button>
       </div>
 
-      {/* Manual close button for current month (end of month) */}
-      {isCurrentMonth && !isFirstWeek && (
-        <button onClick={() => setShowCloseModal(true)} style={{ ...btnPrimary(C.accentBlue + "CC", "#fff"), border: `1.5px dashed ${C.accentBlue}`, fontSize: 12, padding: "10px" }}>
+      {/* Close month button — visible whenever prev month not closed */}
+      {isCurrentMonth && !prevMonthClosed && (state.initialBalances || Object.keys(monthCloses).length > 0) && (
+        <button onClick={() => setShowCloseModal(true)} style={{ ...btnPrimary(C.accentBlue), width: "100%", fontSize: 13, padding: "11px" }}>
           📊 Cerrar {fmtMonth(prevMonth)} y actualizar liquidez
         </button>
       )}
@@ -1736,13 +1736,16 @@ const PersonalPayModal = ({ loan, payAmount, setPayAmount, onConfirm, onClose })
 };
 
 // ── CRÉDITOS PERSONALES ───────────────────────────────────────────────────────
+const TIPO_LABELS = { fijo: "Tasa fija mensual", libre: "Valor acordado fijo", sin: "Sin intereses" };
+
 const PersonalLoansTab = ({ state, setState }) => {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ nombre: "", persona: "", monto: "", tipoInteres: "fijo", tasa: "", cuotaFija: "", dueDay: "", hasDueDay: false, paidInstallments: "0", totalInstallments: "", notas: "" });
+  const [form, setForm] = useState({ nombre: "", persona: "", monto: "", tipoInteres: "sin", tasa: "", cuotaFija: "", dueDay: "", hasDueDay: false, paidInstallments: "0", totalInstallments: "", notas: "" });
   const [payModal, setPayModal] = useState(null);
   const [payAmount, setPayAmount] = useState("");
 
-  const personalLoans = (state.personalLoans || []);
+  if (!state) return null;
+  const personalLoans = state.personalLoans || [];
   const totalDebo = personalLoans.reduce((s, l) => s + (l.saldoActual ?? l.monto), 0);
 
   const addLoan = () => {
@@ -1763,7 +1766,7 @@ const PersonalLoansTab = ({ state, setState }) => {
         historialPagos: [],
       }]
     }));
-    setForm({ nombre: "", persona: "", monto: "", tipoInteres: "fijo", tasa: "", cuotaFija: "", dueDay: "", hasDueDay: false, paidInstallments: "0", totalInstallments: "", notas: "" });
+    setForm({ nombre: "", persona: "", monto: "", tipoInteres: "sin", tasa: "", cuotaFija: "", dueDay: "", hasDueDay: false, paidInstallments: "0", totalInstallments: "", notas: "" });
     setShowForm(false);
   };
 
@@ -1793,8 +1796,6 @@ const PersonalLoansTab = ({ state, setState }) => {
   };
 
   const deleteLoan = (id) => setState(s => ({ ...s, personalLoans: (s.personalLoans || []).filter(l => l.id !== id) }));
-
-  const TIPO_LABELS = { fijo: "Tasa fija mensual", libre: "Valor acordado fijo", sin: "Sin intereses" };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1877,8 +1878,8 @@ const PersonalLoansTab = ({ state, setState }) => {
             </div>
 
             {form.tipoInteres === "fijo" && <div><Label>Tasa mensual (%)</Label><input type="number" step="0.01" placeholder="Ej: 2.5" value={form.tasa} onChange={e => setForm(f => ({ ...f, tasa: e.target.value }))} style={inputSt} /></div>}
-            {form.tipoInteres === "libre" && <div><Label>Costo mensual acordado ($)</Label><input type="number" placeholder="Ej: 50000" value={form.cuotaFija} onChange={e => setForm(f => ({ ...f, cuotaFija: e.target.value }))} style={inputSt} /></div>}
-            {form.tipoInteres !== "sin" && <div><Label>Cuota mensual a capital ($)</Label><input type="number" placeholder="0" value={form.cuotaFija && form.tipoInteres !== "libre" ? form.cuotaFija : ""} onChange={e => setForm(f => ({ ...f, cuotaFija: e.target.value }))} style={inputSt} /></div>}
+            {form.tipoInteres === "fijo" && <div><Label>Cuota mensual acordada a capital ($)</Label><input type="number" placeholder="0" value={form.cuotaFija} onChange={e => setForm(f => ({ ...f, cuotaFija: e.target.value }))} style={inputSt} /></div>}
+            {form.tipoInteres === "libre" && <div><Label>Costo mensual acordado ($) — interés + lo que sea</Label><input type="number" placeholder="Ej: 50000" value={form.cuotaFija} onChange={e => setForm(f => ({ ...f, cuotaFija: e.target.value }))} style={inputSt} /></div>}
 
             <div><Label>Total de cuotas pactadas (opcional)</Label><input type="number" placeholder="Dejar vacío si es libre" value={form.totalInstallments} onChange={e => setForm(f => ({ ...f, totalInstallments: e.target.value }))} style={inputSt} /></div>
 
