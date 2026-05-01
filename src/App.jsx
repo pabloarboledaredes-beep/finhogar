@@ -1810,35 +1810,6 @@ const PersonalLoansTab = ({ state, setState }) => {
           onClose={() => setPayModal(null)}
         />
       )}
-          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "85vh", overflowY: "auto", paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago</div>
-                <button onClick={() => setPayModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
-              </div>
-              <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>{loan.nombre} · {loan.persona}</div>
-              <Label>¿Cuánto pagaste?</Label>
-              <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ ...inputSt, marginBottom: 12, fontSize: 18, fontWeight: 700 }} placeholder={String(loan.cuotaFija || "")} />
-              {amt > 0 && (
-                <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14 }}>
-                  {loan.tipoInteres === "fijo" && <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>→ Interés</span><span style={{ color: C.accentRed, fontSize: 12 }}>{fmt(interes)}</span></div><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital</span><span style={{ color: C.accent, fontSize: 12 }}>{fmt(capital)}</span></div></>}
-                  {loan.tipoInteres === "libre" && <><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>→ Costo acordado</span><span style={{ color: C.accentYellow, fontSize: 12 }}>{fmt(costoExtra)}</span></div><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital</span><span style={{ color: C.accent, fontSize: 12 }}>{fmt(capital)}</span></div></>}
-                  {loan.tipoInteres === "sin" && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital (sin interés)</span><span style={{ color: C.accent, fontSize: 12 }}>{fmt(amt)}</span></div>}
-                  <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 8, display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>Nuevo saldo</span>
-                    <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 14 }}>{fmt(Math.max(0, (loan.saldoActual ?? loan.monto) - capital))}</span>
-                  </div>
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={registrarPago} style={{ ...btnPrimary(C.accentPurple), flex: 1, padding: "13px" }}>✓ Confirmar pago</button>
-                <button onClick={() => setPayModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
       <Box style={{ background: C.accentPurple + "08", borderColor: C.accentPurple + "33" }}>
         <div style={{ color: C.accentPurple, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>🤝 Créditos con personas</div>
         <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>Dinero que deben a familiares, amigos u otras personas. Con o sin interés, con o sin fecha de pago.</div>
