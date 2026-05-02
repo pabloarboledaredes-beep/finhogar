@@ -769,9 +769,12 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
   const rows = total > 0 && pastForm.amount ? buildPurchaseAmortization(+pastForm.amount, total, rate) : [];
   const nextRow = rows[paid];
 
-  // Saldo real = saldo según tabla - abonos extra a capital ya realizados
+  // Saldo según tabla = saldo pendiente ANTES de pagar la próxima cuota
+  // Para 0%: amount / total * remaining. Para tasa: balance del row anterior.
   const abonosExtra = +pastForm.abonosCapital || 0;
-  const saldoTabla = rows[paid]?.balance || 0;
+  const saldoTabla = rate === 0
+    ? Math.round((+pastForm.amount / total) * remaining)
+    : (paid === 0 ? +pastForm.amount : (rows[paid - 1]?.balance || 0));
   const saldoReal = Math.max(0, saldoTabla - abonosExtra);
 
   return (
@@ -841,7 +844,9 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
             <div style={{ background: C.accentOrange + "08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12 }}>
               <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>Vista previa de cuotas pendientes</div>
               {abonosExtra > 0 && (() => {
-                const saldoTabla2 = paid > 0 ? (rows[paid - 1]?.balance || 0) : +pastForm.amount;
+                const saldoTabla2 = rate === 0
+                  ? Math.round((+pastForm.amount / total) * remaining)
+                  : (paid === 0 ? +pastForm.amount : (rows[paid - 1]?.balance || 0));
                 const saldoRealCalc = Math.max(0, saldoTabla2 - abonosExtra);
                 const r2 = rate / 100;
                 const newCuota = r2 === 0
@@ -1184,11 +1189,13 @@ const Deudas = ({ state, setState }) => {
     const rate = pastForm.zeroInterest ? 0 : (card?.rate || 2);
     const remaining = total - paid;
 
-    // Calculamos el saldo real para las cuotas restantes
+    // Saldo pendiente ANTES de la próxima cuota (corrección para 0% y con interés)
     let saldoReal = 0;
     if (abonosExtra > 0) {
       const rows = buildPurchaseAmortization(+pastForm.amount, total, rate);
-      const saldoTabla = paid > 0 ? (rows[paid - 1]?.balance || 0) : +pastForm.amount;
+      const saldoTabla = rate === 0
+        ? Math.round((+pastForm.amount / total) * remaining)
+        : (paid === 0 ? +pastForm.amount : (rows[paid - 1]?.balance || 0));
       saldoReal = Math.max(0, saldoTabla - abonosExtra);
     }
 
