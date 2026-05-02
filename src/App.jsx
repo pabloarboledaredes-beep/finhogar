@@ -755,6 +755,11 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
   const rows = total > 0 && pastForm.amount ? buildPurchaseAmortization(+pastForm.amount, total, rate) : [];
   const nextRow = rows[paid];
 
+  // Saldo real = saldo según tabla - abonos extra a capital ya realizados
+  const abonosExtra = +pastForm.abonosCapital || 0;
+  const saldoTabla = rows[paid]?.balance || 0;
+  const saldoReal = Math.max(0, saldoTabla - abonosExtra);
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentOrange}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
@@ -784,6 +789,27 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
               </div>
             </div>
           )}
+
+          {/* Abonos pasados a capital */}
+          <div style={{ background: C.accent + "08", border: `1px solid ${C.accent}33`, borderRadius: 10, padding: 12 }}>
+            <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>💰 Abonos a capital ya realizados (opcional)</div>
+            <div style={{ color: C.textMuted, fontSize: 11, marginBottom: 8, lineHeight: 1.5 }}>
+              Si hiciste pagos extra a capital en el pasado (además de las cuotas normales), ingrésalos aquí. Se descontarán del saldo actual sin afectar tus gastos de hoy.
+            </div>
+            <input
+              type="number"
+              placeholder="0"
+              value={pastForm.abonosCapital || ""}
+              onChange={e => setPastForm(f => ({ ...f, abonosCapital: e.target.value }))}
+              style={inputSt}
+            />
+            {abonosExtra > 0 && saldoTabla > 0 && (
+              <div style={{ color: C.accent, fontSize: 11, marginTop: 6, fontWeight: 600 }}>
+                Saldo según tabla: {fmt(saldoTabla)} − Abonos: {fmt(abonosExtra)} = <strong>Saldo real: {fmt(saldoReal)}</strong>
+              </div>
+            )}
+          </div>
+
           <div><Label>Fecha de la compra original</Label>
             <DatePicker value={pastForm.date} onChange={v => setPastForm(f => ({ ...f, date: v }))} />
           </div>
@@ -796,6 +822,7 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
               <div style={{ color: C.textMuted, fontSize: 11 }}>{pastForm.zeroInterest ? "Cuotas iguales sin interés" : `Tasa de la tarjeta: ${card?.rate || 2}% mensual`}</div>
             </div>
           </button>
+
           {nextRow && remaining > 0 && (
             <div style={{ background: C.accentOrange + "08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12 }}>
               <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>Vista previa de cuotas pendientes</div>
@@ -808,8 +835,8 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
                 <span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo pendiente</span>
-                <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(rows[paid]?.balance || 0)}</span>
+                <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo real pendiente</span>
+                <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(abonosExtra > 0 ? saldoReal : saldoTabla)}</span>
               </div>
             </div>
           )}
@@ -966,7 +993,12 @@ const Deudas = ({ state, setState }) => {
 
   // Edit purchase modal
   const [editPurchase, setEditPurchase] = useState(null); // { cardId, purchase }
-  const [editPurchaseForm, setEditPurchaseForm] = useState({ desc: "", amount: "", installments: 1, zeroInterest: false, date: "" });
+  const [editPurchaseForm, setEditPurchaseForm] = useState({ desc: "", amount: "", installments: 1, paidInstallments: 0, zeroInterest: false, date: "" });
+
+  // Capital payment modal for TC purchases
+  const [capitalModal, setCapitalModal] = useState(null); // { cardId, purchaseId }
+  const [capitalAmount, setCapitalAmount] = useState("");
+  const [capitalStrategy, setCapitalStrategy] = useState("plazo"); // "plazo" | "cuota"
 
   // Compras pasadas — no afectan el flujo del mes actual
   const [pastModal, setPastModal] = useState(null); // cardId
@@ -978,17 +1010,17 @@ const Deudas = ({ state, setState }) => {
 
   const cardSummary = useMemo(() => state.cards.map(card => {
     const ap = card.purchases.filter(p => p.paidInstallments < p.installments);
-    const currentDue = ap.reduce((sum, p) => {
+    // Exclude pendingNextCycle purchases from current month's due amount
+    const currentDue = ap.filter(p => !p.pendingNextCycle).reduce((sum, p) => {
       const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate);
       return sum + (rows[p.paidInstallments]?.pmt || 0);
     }, 0);
     const totalBalance = ap.reduce((sum, p) => {
       const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate);
-      // Balance after last paid installment (or full amount if nothing paid yet)
       const bal = p.paidInstallments > 0
         ? (rows[p.paidInstallments - 1]?.balance || 0)
         : p.amount;
-      return sum + bal;
+      return sum + Math.max(0, bal - (p.abonosCapitalPasados || 0));
     }, 0);
     return { ...card, activePurchases: ap, currentDue: Math.round(currentDue), totalBalance: Math.round(totalBalance) };
   }), [state.cards]);
@@ -1004,11 +1036,20 @@ const Deudas = ({ state, setState }) => {
 
   const openEditPurchase = (cardId, purchase) => {
     setEditPurchase({ cardId, purchaseId: purchase.id });
-    setEditPurchaseForm({ desc: purchase.desc, amount: String(purchase.amount), installments: purchase.installments, zeroInterest: !!purchase.zeroInterest, date: purchase.date });
+    setEditPurchaseForm({
+      desc: purchase.desc,
+      amount: String(purchase.amount),
+      installments: purchase.installments,
+      paidInstallments: purchase.paidInstallments,
+      zeroInterest: !!purchase.zeroInterest,
+      date: purchase.date,
+    });
   };
 
   const saveEditPurchase = () => {
     if (!editPurchase) return;
+    const newInstallments = Math.min(36, Math.max(1, +editPurchaseForm.installments));
+    const newPaid = Math.min(Math.max(0, +editPurchaseForm.paidInstallments), newInstallments - 1);
     setState(s => ({
       ...s,
       cards: s.cards.map(c => c.id === editPurchase.cardId ? {
@@ -1017,14 +1058,76 @@ const Deudas = ({ state, setState }) => {
           ...p,
           desc: editPurchaseForm.desc,
           amount: +editPurchaseForm.amount,
-          installments: Math.min(36, Math.max(1, +editPurchaseForm.installments)),
+          installments: newInstallments,
           zeroInterest: editPurchaseForm.zeroInterest,
           date: editPurchaseForm.date,
-          paidInstallments: Math.min(p.paidInstallments, +editPurchaseForm.installments),
+          paidInstallments: newPaid,
         } : p)
       } : c)
     }));
     setEditPurchase(null);
+  };
+
+  // ── ABONO A CAPITAL EN TC ──────────────────────────────────────────────────
+  const confirmCapitalPayment = () => {
+    const abono = +capitalAmount;
+    if (!abono || !capitalModal) return;
+    const { cardId, purchaseId } = capitalModal;
+
+    setState(s => {
+      const card = s.cards.find(c => c.id === cardId);
+      const purchase = card?.purchases.find(p => p.id === purchaseId);
+      if (!card || !purchase) return s;
+
+      const rate = purchase.zeroInterest ? 0 : card.rate;
+      const remaining = purchase.installments - purchase.paidInstallments;
+      const rows = buildPurchaseAmortization(purchase.amount, purchase.installments, rate);
+      const currentBalance = purchase.paidInstallments > 0
+        ? rows[purchase.paidInstallments - 1]?.balance || 0
+        : purchase.amount;
+      const newBalance = Math.max(0, currentBalance - abono);
+
+      let updatedPurchase;
+      if (capitalStrategy === "plazo") {
+        // Reducir plazo — misma cuota, menos cuotas
+        const cuota = rows[purchase.paidInstallments]?.pmt || 0;
+        const r = rate / 100;
+        const newRemaining = r === 0
+          ? Math.ceil(newBalance / (purchase.amount / purchase.installments))
+          : newBalance <= 0 ? 0 : Math.ceil(Math.log(cuota / (cuota - newBalance * r)) / Math.log(1 + r));
+        const newTotal = purchase.paidInstallments + Math.max(0, newRemaining);
+        updatedPurchase = { ...purchase, amount: purchase.amount, installments: newTotal };
+      } else {
+        // Reducir cuota — mismas cuotas restantes, cuota más baja
+        // Rebuild amortization with new balance and same remaining installments
+        const newTotal = purchase.installments;
+        // Adjust amount to reflect the abono (reduce principal for remaining)
+        const alreadyPaidCapital = rows.slice(0, purchase.paidInstallments).reduce((s, r) => s + r.capital, 0);
+        const newAmount = alreadyPaidCapital + newBalance;
+        updatedPurchase = { ...purchase, amount: newAmount };
+      }
+
+      // Register expense for the capital payment
+      const expense = {
+        id: Date.now(), memberId: s.members[0]?.id || 1,
+        category: "Otros",
+        desc: `Abono a capital: ${purchase.desc} (${card.name})`,
+        amount: abono, payMethod: "Transferencia", cardId, date: getToday(),
+      };
+
+      return {
+        ...s,
+        cards: s.cards.map(c => c.id === cardId ? {
+          ...c,
+          purchases: c.purchases.map(p => p.id === purchaseId ? updatedPurchase : p)
+        } : c),
+        expenses: [expense, ...s.expenses],
+      };
+    });
+
+    setCapitalModal(null);
+    setCapitalAmount("");
+    setCapitalStrategy("plazo");
   };
 
   // ── COMPRA PASADA ─────────────────────────────────────────────────────────
@@ -1035,6 +1138,8 @@ const Deudas = ({ state, setState }) => {
     const paid = Math.min(+pastForm.paidInstallments || 0, total - 1);
     if (!pastForm.desc || !pastForm.amount || !total || total < 1) return;
 
+    const abonosExtra = +pastForm.abonosCapital || 0;
+
     setState(s => ({
       ...s,
       cards: s.cards.map(c => c.id === pastModal ? {
@@ -1044,17 +1149,19 @@ const Deudas = ({ state, setState }) => {
           desc: pastForm.desc,
           amount: +pastForm.amount,
           installments: total,
-          paidInstallments: paid,  // arranca desde la cuota paid+1
+          paidInstallments: paid,
           zeroInterest: pastForm.zeroInterest,
           date: pastForm.date,
-          isPastPurchase: true,    // flag — no afecta gastos del mes
+          isPastPurchase: true,
+          // Store abonos as a separate field — used to show real balance
+          abonosCapitalPasados: abonosExtra,
         }]
       } : c)
-      // 🔑 NO se toca expenses ni budgets — el gasto ya ocurrió en el pasado
+      // 🔑 NO se toca expenses ni budgets — todo ya ocurrió en el pasado
     }));
 
     setPastModal(null);
-    setPastForm({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() });
+    setPastForm({ desc: "", amount: "", installments: "", paidInstallments: "0", abonosCapital: "", zeroInterest: false, date: getToday() });
   };
 
   const openEditLoan = (loan) => {
@@ -1387,6 +1494,89 @@ const Deudas = ({ state, setState }) => {
         />
       )}
 
+      {/* Capital Payment Modal — abono a capital TC */}
+      {capitalModal && (() => {
+        const card = state.cards.find(c => c.id === capitalModal.cardId);
+        const purchase = card?.purchases.find(p => p.id === capitalModal.purchaseId);
+        if (!card || !purchase) return null;
+        const abono = +capitalAmount || 0;
+        const rate = purchase.zeroInterest ? 0 : card.rate;
+        const rows = buildPurchaseAmortization(purchase.amount, purchase.installments, rate);
+        const currentBalance = purchase.paidInstallments > 0
+          ? rows[purchase.paidInstallments - 1]?.balance || 0
+          : purchase.amount;
+        const newBalance = Math.max(0, currentBalance - abono);
+        const cuota = rows[purchase.paidInstallments]?.pmt || 0;
+        const r = rate / 100;
+        const newRemaining = capitalStrategy === "plazo"
+          ? (r === 0 ? Math.ceil(newBalance / (purchase.amount / purchase.installments)) : newBalance <= 0 ? 0 : Math.ceil(Math.log(cuota / Math.max(0.001, cuota - newBalance * r)) / Math.log(1 + r)))
+          : purchase.installments - purchase.paidInstallments;
+        const currentRemaining = purchase.installments - purchase.paidInstallments;
+
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentOrange}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>💰 Abono a capital</div>
+                <button onClick={() => setCapitalModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+              </div>
+              <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 16 }}>{purchase.desc} · {card.name}</div>
+
+              <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo actual</span>
+                  <span style={{ color: C.text, fontWeight: 700 }}>{fmt(currentBalance)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
+                  <span style={{ color: C.text, fontWeight: 700 }}>{currentRemaining}</span>
+                </div>
+              </div>
+
+              <Label>Monto a abonar a capital ($)</Label>
+              <input type="number" value={capitalAmount} onChange={e => setCapitalAmount(e.target.value)} style={{ ...inputSt, marginBottom: 14, fontSize: 18, fontWeight: 700 }} placeholder="0" />
+
+              <Label>¿Para qué usar el abono?</Label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                {[
+                  ["plazo", "⏱️ Reducir el plazo", `Terminas antes. Cuotas restantes: ${currentRemaining} → ~${Math.max(0, newRemaining)}`],
+                  ["cuota", "💰 Reducir la cuota", "Mismas cuotas restantes pero monto mensual más bajo"],
+                ].map(([val, title, desc]) => (
+                  <button key={val} onClick={() => setCapitalStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${capitalStrategy === val ? C.accentOrange : C.border}`, background: capitalStrategy === val ? C.accentOrange + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                    <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${capitalStrategy === val ? C.accentOrange : C.border}`, background: capitalStrategy === val ? C.accentOrange : "transparent", flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <div style={{ color: capitalStrategy === val ? C.accentOrange : C.text, fontWeight: 700, fontSize: 13 }}>{title}</div>
+                      <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {abono > 0 && (
+                <div style={{ background: C.accentOrange + "08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                  <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 6 }}>Resultado del abono</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>Nuevo saldo</span>
+                    <span style={{ color: C.accent, fontWeight: 700 }}>{fmt(newBalance)}</span>
+                  </div>
+                  {capitalStrategy === "plazo" && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
+                      <span style={{ color: C.accentOrange, fontWeight: 700 }}>{currentRemaining} → {Math.max(0, newRemaining)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={confirmCapitalPayment} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>✓ Confirmar abono</button>
+                <button onClick={() => setCapitalModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Edit Purchase Modal */}
       {editPurchase && (
         <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
@@ -1404,6 +1594,11 @@ const Deudas = ({ state, setState }) => {
               <div><Label>Descripción</Label><input value={editPurchaseForm.desc} onChange={e => setEditPurchaseForm(f => ({ ...f, desc: e.target.value }))} style={inputSt} /></div>
               <div><Label>Valor ($)</Label><input type="number" value={editPurchaseForm.amount} onChange={e => setEditPurchaseForm(f => ({ ...f, amount: e.target.value }))} style={inputSt} /></div>
               <div><Label>Cuotas (1 a 36)</Label><input type="number" min="1" max="36" placeholder="Ej: 12" value={editPurchaseForm.installments || ""} onChange={e => { const n = e.target.value === "" ? "" : Math.min(36, Math.max(1, +e.target.value)); setEditPurchaseForm(f => ({ ...f, installments: n })); }} style={inputSt} /></div>
+              <div>
+                <Label>Cuotas ya pagadas</Label>
+                <input type="number" min="0" max={+editPurchaseForm.installments - 1 || 35} placeholder="0" value={editPurchaseForm.paidInstallments} onChange={e => setEditPurchaseForm(f => ({ ...f, paidInstallments: Math.max(0, +e.target.value || 0) }))} style={inputSt} />
+                <div style={{ color: C.accent, fontSize: 11, marginTop: 4 }}>La app arrancará desde la cuota #{(+editPurchaseForm.paidInstallments || 0) + 1}</div>
+              </div>
               <div><Label>Fecha</Label><DatePicker value={editPurchaseForm.date || getToday()} onChange={v => setEditPurchaseForm(f => ({ ...f, date: v }))} /></div>
               <button onClick={() => setEditPurchaseForm(f => ({ ...f, zeroInterest: !f.zeroInterest }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${editPurchaseForm.zeroInterest ? C.accent : C.border}`, background: editPurchaseForm.zeroInterest ? C.accent + "10" : "transparent", cursor: "pointer", fontFamily: "inherit" }}>
                 <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${editPurchaseForm.zeroInterest ? C.accent : C.border}`, background: editPurchaseForm.zeroInterest ? C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{editPurchaseForm.zeroInterest && <span style={{ color: "#fff", fontSize: 11, fontWeight: 900 }}>✓</span>}</div>
@@ -1579,7 +1774,7 @@ const Deudas = ({ state, setState }) => {
             {card.purchases.map(p => { const effectiveRate = p.zeroInterest ? 0 : card.rate; const rows = buildPurchaseAmortization(p.amount, p.installments, effectiveRate); const remaining = p.installments - p.paidInstallments; const nextRow = rows[p.paidInstallments]; const totalInterest = rows.reduce((s, r) => s + r.interest, 0); const isDone = p.paidInstallments >= p.installments; return (
               <div key={p.id} style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 10, border: `1.5px solid ${isDone ? C.accent + "44" : C.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{p.desc} {isDone && "✓"}{p.zeroInterest && <Tag color={C.accent}>0% interés</Tag>}{p.isPastPurchase && <Tag color={C.textMuted}>Mes anterior</Tag>}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
+                  <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{p.desc} {isDone && "✓"}{p.zeroInterest && <Tag color={C.accent}>0% interés</Tag>}{p.isPastPurchase && <Tag color={C.textMuted}>Mes anterior</Tag>}{p.pendingNextCycle && <Tag color={C.accentYellow}>Próximo ciclo</Tag>}{p.abonosCapitalPasados > 0 && <Tag color={C.accent}>Abono: -{fmt(p.abonosCapitalPasados)}</Tag>}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => openEditPurchase(card.id, p)} style={{ background: C.accent + "12", border: `1px solid ${C.accent}33`, color: C.accent, borderRadius: 7, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️</button>
                     <button onClick={() => deletePurchase(card.id, p.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
@@ -1592,7 +1787,10 @@ const Deudas = ({ state, setState }) => {
                 </div>)}
                 <div style={{ marginBottom: 8 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 11 }}>Progreso de pago</span><span style={{ color: C.accent, fontSize: 11, fontWeight: 700 }}>{p.paidInstallments}/{p.installments}</span></div><Bar value={p.paidInstallments} max={p.installments} color={C.accent} h={6} /></div>
                 <AmortTable rows={rows.map((r, i) => ({ ...r, paid: i < p.paidInstallments }))} title={`Amortización: ${p.desc}`} color={C.accentOrange} />
-                {!isDone && <button onClick={() => payPurchaseInstallment(card.id, p.id)} style={{ ...btnPrimary(C.accentOrange), width: "100%", marginTop: 10, fontSize: 12 }}>💸 Pagar cuota #{p.paidInstallments + 1}</button>}
+                {!isDone && <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button onClick={() => payPurchaseInstallment(card.id, p.id)} style={{ ...btnPrimary(C.accentOrange), flex: 1, fontSize: 12 }}>💸 Pagar cuota #{p.paidInstallments + 1}</button>
+                  <button onClick={() => { setCapitalModal({ cardId: card.id, purchaseId: p.id }); setCapitalAmount(""); setCapitalStrategy("plazo"); }} style={{ ...btnPrimary(C.accent), flex: 1, fontSize: 12 }}>💰 Abonar capital</button>
+                </div>}
               </div>
             ); })}
           </Box>
@@ -2871,7 +3069,38 @@ const Configuracion = ({ state, setState, user }) => {
   const saveCard = () => {
     if (!cardForm.name || !cardForm.limit) return;
     if (editCardId) {
-      setState(s => ({ ...s, cards: s.cards.map(c => c.id === editCardId ? { ...c, name: cardForm.name, holder: +cardForm.holder, limit: +cardForm.limit, rate: +cardForm.rate || 2.0, dueDate: cardForm.dueDate } : c) }));
+      setState(s => {
+        const oldCard = s.cards.find(c => c.id === editCardId);
+        const oldDueDate = oldCard?.dueDate;
+        const newDueDate = +cardForm.dueDate;
+        const updatedCard = {
+          ...oldCard,
+          name: cardForm.name, holder: +cardForm.holder,
+          limit: +cardForm.limit, rate: +cardForm.rate || 2.0,
+          dueDate: cardForm.dueDate,
+        };
+        // If dueDate changed, mark purchases made after new cut day as pendingNextCycle
+        if (oldDueDate && newDueDate && +oldDueDate !== newDueDate) {
+          const today = new Date();
+          const currentMonth = today.getMonth();
+          const currentYear = today.getFullYear();
+          updatedCard.purchases = (oldCard.purchases || []).map(p => {
+            const purchaseDate = new Date(p.date);
+            const purchaseDay = purchaseDate.getDate();
+            const purchaseMonth = purchaseDate.getMonth();
+            const purchaseYear = purchaseDate.getFullYear();
+            // Purchase is in current month and after new cut day → move to next cycle
+            const isCurrentCycle = purchaseYear === currentYear && purchaseMonth === currentMonth;
+            const isAfterNewCut = purchaseDay > newDueDate;
+            const isBeforeOldCut = purchaseDay <= +oldDueDate;
+            if (isCurrentCycle && isAfterNewCut && isBeforeOldCut) {
+              return { ...p, pendingNextCycle: true };
+            }
+            return { ...p, pendingNextCycle: false };
+          });
+        }
+        return { ...s, cards: s.cards.map(c => c.id === editCardId ? updatedCard : c) };
+      });
     } else {
       setState(s => ({ ...s, cards: [...s.cards, { id: Date.now(), name: cardForm.name, holder: +cardForm.holder, limit: +cardForm.limit, rate: +cardForm.rate || 2.0, dueDate: cardForm.dueDate, purchases: [] }] }));
     }
