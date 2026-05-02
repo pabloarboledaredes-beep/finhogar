@@ -3071,34 +3071,28 @@ const Configuracion = ({ state, setState, user }) => {
     if (editCardId) {
       setState(s => {
         const oldCard = s.cards.find(c => c.id === editCardId);
-        const oldDueDate = oldCard?.dueDate;
-        const newDueDate = +cardForm.dueDate;
+        const oldDueDate = +oldCard?.dueDate || 0;
+        const newDueDate = +cardForm.dueDate || 0;
+
         const updatedCard = {
           ...oldCard,
           name: cardForm.name, holder: +cardForm.holder,
           limit: +cardForm.limit, rate: +cardForm.rate || 2.0,
           dueDate: cardForm.dueDate,
         };
-        // If dueDate changed, mark purchases made after new cut day as pendingNextCycle
-        if (oldDueDate && newDueDate && +oldDueDate !== newDueDate) {
-          const today = new Date();
-          const currentMonth = today.getMonth();
-          const currentYear = today.getFullYear();
+
+        // If dueDate changed, recalculate pendingNextCycle for ALL purchases
+        // Rule: if day of purchase > new cut day → pendingNextCycle = true
+        //       (the purchase didn't make it into the current billing cycle)
+        if (oldDueDate && newDueDate && oldDueDate !== newDueDate) {
           updatedCard.purchases = (oldCard.purchases || []).map(p => {
-            const purchaseDate = new Date(p.date);
-            const purchaseDay = purchaseDate.getDate();
-            const purchaseMonth = purchaseDate.getMonth();
-            const purchaseYear = purchaseDate.getFullYear();
-            // Purchase is in current month and after new cut day → move to next cycle
-            const isCurrentCycle = purchaseYear === currentYear && purchaseMonth === currentMonth;
-            const isAfterNewCut = purchaseDay > newDueDate;
-            const isBeforeOldCut = purchaseDay <= +oldDueDate;
-            if (isCurrentCycle && isAfterNewCut && isBeforeOldCut) {
-              return { ...p, pendingNextCycle: true };
-            }
-            return { ...p, pendingNextCycle: false };
+            const purchaseDay = new Date(p.date).getDate();
+            // Purchase made AFTER the new cut day → moves to next cycle
+            const pendingNextCycle = purchaseDay > newDueDate;
+            return { ...p, pendingNextCycle };
           });
         }
+
         return { ...s, cards: s.cards.map(c => c.id === editCardId ? updatedCard : c) };
       });
     } else {
