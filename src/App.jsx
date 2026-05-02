@@ -826,18 +826,50 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
           {nextRow && remaining > 0 && (
             <div style={{ background: C.accentOrange + "08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12 }}>
               <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>Vista previa de cuotas pendientes</div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: C.textMuted, fontSize: 12 }}>Próxima cuota (#{paid + 1})</span>
-                <span style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{fmt(nextRow.pmt)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
-                <span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo real pendiente</span>
-                <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(abonosExtra > 0 ? saldoReal : saldoTabla)}</span>
-              </div>
+              {abonosExtra > 0 ? (() => {
+                // Recalculate with reduced amount (cuota reduction strategy)
+                const rowsBase = buildPurchaseAmortization(+pastForm.amount, total, 0);
+                const capitalEnCuotas = rowsBase.slice(0, paid).reduce((s, r) => s + r.capital, 0);
+                const saldoReal = Math.max(0, (rowsBase[paid - 1]?.balance || +pastForm.amount) - abonosExtra);
+                const effectiveAmt = paid > 0 ? capitalEnCuotas + saldoReal : Math.max(0, +pastForm.amount - abonosExtra);
+                const rowsNew = buildPurchaseAmortization(effectiveAmt, total, rate);
+                const newCuota = rowsNew[paid]?.pmt || 0;
+                return (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>Cuota original (#{paid + 1})</span>
+                      <span style={{ color: C.textMuted, fontSize: 12, textDecoration: "line-through" }}>{fmt(nextRow.pmt)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>Nueva cuota (#{paid + 1})</span>
+                      <span style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>{fmt(newCuota)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
+                      <span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo real pendiente</span>
+                      <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(saldoReal)}</span>
+                    </div>
+                  </>
+                );
+              })() : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>Próxima cuota (#{paid + 1})</span>
+                    <span style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{fmt(nextRow.pmt)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
+                    <span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo pendiente</span>
+                    <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(rows[paid]?.balance || 0)}</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
           <div style={{ background: C.accentBlue + "08", border: `1px solid ${C.accentBlue}33`, borderRadius: 8, padding: "10px 12px" }}>
@@ -1139,6 +1171,21 @@ const Deudas = ({ state, setState }) => {
     if (!pastForm.desc || !pastForm.amount || !total || total < 1) return;
 
     const abonosExtra = +pastForm.abonosCapital || 0;
+    // Use real card rate for amortization calculation
+    const card = state.cards.find(c => c.id === pastModal);
+    const rate = pastForm.zeroInterest ? 0 : (card?.rate || 2);
+
+    // Abonos pasados → siempre reducen la cuota (no el plazo) para compras pasadas.
+    // Ajustamos effectiveAmount para que la amortización refleje el saldo real.
+    let effectiveAmount = +pastForm.amount;
+    if (abonosExtra > 0) {
+      const rows = buildPurchaseAmortization(+pastForm.amount, total, rate);
+      const capitalEnCuotas = rows.slice(0, paid).reduce((s, r) => s + r.capital, 0);
+      const saldoSegunTabla = paid > 0 ? (rows[paid - 1]?.balance || 0) : +pastForm.amount;
+      const saldoReal = Math.max(0, saldoSegunTabla - abonosExtra);
+      // Nuevo monto efectivo = capital ya pagado en cuotas + saldo real pendiente
+      effectiveAmount = Math.max(0, capitalEnCuotas + saldoReal);
+    }
 
     setState(s => ({
       ...s,
@@ -1147,17 +1194,16 @@ const Deudas = ({ state, setState }) => {
         purchases: [...c.purchases, {
           id: Date.now(),
           desc: pastForm.desc,
-          amount: +pastForm.amount,
+          amount: effectiveAmount,
+          originalAmount: +pastForm.amount,
           installments: total,
           paidInstallments: paid,
           zeroInterest: pastForm.zeroInterest,
           date: pastForm.date,
           isPastPurchase: true,
-          // Store abonos as a separate field — used to show real balance
           abonosCapitalPasados: abonosExtra,
         }]
       } : c)
-      // 🔑 NO se toca expenses ni budgets — todo ya ocurrió en el pasado
     }));
 
     setPastModal(null);
