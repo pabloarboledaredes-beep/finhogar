@@ -1831,14 +1831,16 @@ const Deudas = ({ state, setState }) => {
               onClick={() => {
                 const cutDay = +card.dueDate;
                 if (!cutDay) return;
+                // Fecha de cierre del ciclo actual = día cutDay del mes actual
+                const now = new Date();
+                const cutDate = new Date(now.getFullYear(), now.getMonth(), cutDay);
                 setState(s => ({
                   ...s,
                   cards: s.cards.map(c => c.id === card.id ? {
                     ...c,
                     purchases: c.purchases.map(p => {
-                      const parts = (p.date || "").split("-");
-                      const purchaseDay = parts.length === 3 ? +parts[2] : 0;
-                      return { ...p, pendingNextCycle: purchaseDay > cutDay };
+                      const purchaseDate = new Date(p.date);
+                      return { ...p, pendingNextCycle: purchaseDate > cutDate };
                     })
                   } : c)
                 }));
@@ -3165,15 +3167,14 @@ const Configuracion = ({ state, setState, user }) => {
           dueDate: cardForm.dueDate,
         };
 
-        // If dueDate changed, recalculate pendingNextCycle for ALL purchases
-        // Rule: if day of purchase > new cut day → pendingNextCycle = true
+        // Si dueDate cambió, recalcular pendingNextCycle para TODAS las compras
+        // Regla: compra > día cutDay del mes actual → próximo ciclo
         if (oldDueDate !== newDueDate) {
+          const now = new Date();
+          const cutDate = new Date(now.getFullYear(), now.getMonth(), newDueDate);
           updatedCard.purchases = (oldCard.purchases || []).map(p => {
-            // Parse day safely without timezone issues: take day directly from string "YYYY-MM-DD"
-            const parts = (p.date || "").split("-");
-            const purchaseDay = parts.length === 3 ? +parts[2] : new Date(p.date).getDate();
-            const pendingNextCycle = purchaseDay > newDueDate;
-            return { ...p, pendingNextCycle };
+            const purchaseDate = new Date(p.date);
+            return { ...p, pendingNextCycle: purchaseDate > cutDate };
           });
         }
 
