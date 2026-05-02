@@ -1763,6 +1763,27 @@ const Deudas = ({ state, setState }) => {
                 <div style={{ color: C.textMuted, fontSize: 11 }}>Saldo: {fmt(card.totalBalance)}</div>
               </div>
             </div>
+            {/* Recalculate cycle by cut day — applies to all purchases */}
+            <button
+              onClick={() => {
+                const cutDay = +card.dueDate;
+                if (!cutDay) return;
+                setState(s => ({
+                  ...s,
+                  cards: s.cards.map(c => c.id === card.id ? {
+                    ...c,
+                    purchases: c.purchases.map(p => {
+                      const parts = (p.date || "").split("-");
+                      const purchaseDay = parts.length === 3 ? +parts[2] : 0;
+                      return { ...p, pendingNextCycle: purchaseDay > cutDay };
+                    })
+                  } : c)
+                }));
+              }}
+              style={{ background: C.accentYellow + "10", border: `1.5px dashed ${C.accentYellow}44`, color: C.accentYellow, borderRadius: 8, padding: "7px 12px", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, width: "100%", marginBottom: 10 }}
+            >
+              🔄 Recalcular ciclo según corte día {card.dueDate}
+            </button>
             <button
               onClick={() => { setPastModal(card.id); setPastForm({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() }); }}
               style={{ ...btnPrimary(C.accentOrange + "CC", "#fff"), width: "100%", marginBottom: 14, fontSize: 12, padding: "9px", border: `1.5px dashed ${C.accentOrange}` }}
@@ -3071,8 +3092,8 @@ const Configuracion = ({ state, setState, user }) => {
     if (editCardId) {
       setState(s => {
         const oldCard = s.cards.find(c => c.id === editCardId);
-        const oldDueDate = +oldCard?.dueDate || 0;
-        const newDueDate = +cardForm.dueDate || 0;
+        const oldDueDate = +(oldCard?.dueDate) || 0;
+        const newDueDate = +(cardForm.dueDate) || 0;
 
         const updatedCard = {
           ...oldCard,
@@ -3083,11 +3104,11 @@ const Configuracion = ({ state, setState, user }) => {
 
         // If dueDate changed, recalculate pendingNextCycle for ALL purchases
         // Rule: if day of purchase > new cut day → pendingNextCycle = true
-        //       (the purchase didn't make it into the current billing cycle)
-        if (oldDueDate && newDueDate && oldDueDate !== newDueDate) {
+        if (oldDueDate !== newDueDate) {
           updatedCard.purchases = (oldCard.purchases || []).map(p => {
-            const purchaseDay = new Date(p.date).getDate();
-            // Purchase made AFTER the new cut day → moves to next cycle
+            // Parse day safely without timezone issues: take day directly from string "YYYY-MM-DD"
+            const parts = (p.date || "").split("-");
+            const purchaseDay = parts.length === 3 ? +parts[2] : new Date(p.date).getDate();
             const pendingNextCycle = purchaseDay > newDueDate;
             return { ...p, pendingNextCycle };
           });
