@@ -9,7 +9,7 @@ import {
 } from "./multihogar.jsx";
 
 // ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
-const C = {
+const LIGHT = {
   bg: "#F7F8FA", surface: "#FFFFFF", surfaceAlt: "#F2F4F7", surfaceHigh: "#E8EBF0",
   border: "#E2E6ED", borderLight: "#EDF0F4",
   accent: "#1A7CF4", accentDim: "#1A7CF408",
@@ -17,6 +17,32 @@ const C = {
   accentRed: "#E02D3C", accentYellow: "#D97706", accentPink: "#DB2777",
   text: "#0F1623", textMuted: "#6B7280", textSub: "#D1D5DB", white: "#ffffff",
 };
+
+const DARK = {
+  bg: "#0F1117", surface: "#1C1F26", surfaceAlt: "#252830", surfaceHigh: "#2E3140",
+  border: "#2E3140", borderLight: "#363A4A",
+  accent: "#4D9EFF", accentDim: "#4D9EFF15",
+  accentOrange: "#FF7A3D", accentBlue: "#4D9EFF", accentPurple: "#A78BFA",
+  accentRed: "#F87171", accentYellow: "#FCD34D", accentPink: "#F472B6",
+  text: "#F1F3F7", textMuted: "#9CA3AF", textSub: "#4B5563", white: "#ffffff",
+};
+
+// Hook que detecta el tema del sistema y actualiza en tiempo real
+function useTheme() {
+  const isDark = () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  const [dark, setDark] = useState(isDark);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e) => setDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return dark ? DARK : LIGHT;
+}
+
+// C es global pero se actualiza desde el root — componentes lo leen via prop o context
+// Para simplicidad usamos un objeto mutable que el root actualiza antes de cada render
+let C = { ...LIGHT };
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
 const fmt = (n) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -3714,6 +3740,10 @@ const Reportes = ({ state }) => {
 
 // ── ROOT APP WITH MULTI-HOGAR ─────────────────────────────────────────────────
 export default function App() {
+  const theme = useTheme();
+  // Update global C so all components get the right colors
+  Object.assign(C, theme);
+
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
@@ -3740,9 +3770,9 @@ export default function App() {
 
   // Loading states
   if (authLoading || (user && loading)) return (
-    <div style={{ minHeight: "100vh", background: "#F7F8FA", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 36 }}>🪺</div>
-      <div style={{ color: "#6B7280", fontSize: 14 }}>Cargando NestGrow...</div>
+      <div style={{ color: C.textMuted, fontSize: 14 }}>Cargando NestGrow...</div>
     </div>
   );
 
@@ -3775,7 +3805,7 @@ export default function App() {
   const isCreator = user.email === "pabloarboleda.redes@gmail.com";
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F7F8FA", fontFamily: "'DM Sans', -apple-system, sans-serif", color: "#0F1623", display: "flex", flexDirection: "column", maxWidth: 520, margin: "0 auto" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'DM Sans', -apple-system, sans-serif", color: C.text, display: "flex", flexDirection: "column", maxWidth: 520, margin: "0 auto" }}>
 
       {/* Invite code banner after creating hogar */}
       {newHogarCode && (
@@ -3790,7 +3820,7 @@ export default function App() {
       {showSistema && <SistemaPanel user={user} onClose={() => setShowSistema(false)} />}
 
       {/* Header */}
-      <div style={{ padding: "12px 18px 10px", background: "#FFFFFF", borderBottom: "1.5px solid #E2E6ED", position: "sticky", top: 0, zIndex: 10, boxShadow: "0 1px 0 rgba(0,0,0,0.04)" }}>
+      <div style={{ padding: "12px 18px 10px", background: C.surface, borderBottom: `1.5px solid ${C.border}`, position: "sticky", top: 0, zIndex: 10, boxShadow: "0 1px 0 rgba(0,0,0,0.04)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 32, height: 32, borderRadius: 8, background: "#1A7CF4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🪺</div>
@@ -3812,7 +3842,7 @@ export default function App() {
               </div>
             </div>
           </div>
-          <button onClick={handleLogout} style={{ background: "none", border: "1px solid #E2E6ED", borderRadius: 8, padding: "5px 10px", color: "#6B7280", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Salir</button>
+          <button onClick={handleLogout} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 8, padding: "5px 10px", color: C.textMuted, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Salir</button>
         </div>
       </div>
 
@@ -3824,13 +3854,13 @@ export default function App() {
       {/* Bottom Nav — scrollable horizontal */}
       <div style={{
         position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
-        width: "100%", maxWidth: 520, background: "#FFFFFF",
-        borderTop: "1.5px solid #E2E6ED",
+        width: "100%", maxWidth: 520, background: C.surface,
+        borderTop: `1.5px solid ${C.border}`,
         paddingTop: 6, paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
         zIndex: 100, boxShadow: "0 -2px 12px rgba(0,0,0,0.06)",
         overflowX: "auto", overflowY: "hidden",
         WebkitOverflowScrolling: "touch",
-        scrollbarWidth: "none", // Firefox
+        scrollbarWidth: "none",
       }}>
         <div style={{ display: "flex", minWidth: "max-content", paddingLeft: 4, paddingRight: 4 }}>
           {nav.map(n => <NavBtn key={n.id} {...n} active={tab === n.id} onClick={() => setTab(n.id)} />)}

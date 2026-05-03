@@ -10,8 +10,15 @@ import {
   collection, serverTimestamp, arrayUnion
 } from "firebase/firestore";
 
-// ── COLORES ───────────────────────────────────────────────────────────────────
-const C = {
+// ── COLORES (sincronizados con App.jsx via preferencia del sistema) ────────────
+const isDarkMode = () => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+const C = isDarkMode() ? {
+  bg: "#0F1117", surface: "#1C1F26", surfaceAlt: "#252830", surfaceHigh: "#2E3140",
+  border: "#2E3140", accent: "#4D9EFF", accentDim: "#4D9EFF15",
+  accentOrange: "#FF7A3D", accentBlue: "#4D9EFF", accentPurple: "#A78BFA",
+  accentRed: "#F87171", accentYellow: "#FCD34D", accentPink: "#F472B6",
+  text: "#F1F3F7", textMuted: "#9CA3AF", textSub: "#4B5563", white: "#ffffff",
+} : {
   bg: "#F7F8FA", surface: "#FFFFFF", surfaceAlt: "#F2F4F7", surfaceHigh: "#E8EBF0",
   border: "#E2E6ED", accent: "#1A7CF4", accentDim: "#1A7CF408",
   accentOrange: "#F5640A", accentBlue: "#1A7CF4", accentPurple: "#7C3AED",
