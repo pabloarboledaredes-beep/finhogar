@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { auth, db, googleProvider } from "./firebase";
 import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import {
   LoginScreen, OnboardingScreen, InviteCodeBanner,
   SistemaPanel, useHogar, PrivacyPolicyModal
@@ -3461,6 +3462,256 @@ const Configuracion = ({ state, setState, user }) => {
   );
 };
 
+// ── REPORTES ──────────────────────────────────────────────────────────────────
+const Reportes = ({ state }) => {
+  const [reportTab, setReportTab] = useState("gastos");
+  const MONTHS_BACK = 6;
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  const getLast6Months = () => {
+    const months = [];
+    for (let i = MONTHS_BACK - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - i);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][d.getMonth()];
+      months.push({ ym, label });
+    }
+    return months;
+  };
+
+  const months = getLast6Months();
+
+  // ── Gráfica 1: Gastos por categoría (mes actual vs anterior) ─────────────────
+  const currentMonth = getCurrentMonth();
+  const prevMonth = navigateMonth(currentMonth, -1);
+
+  const catData = state.budgets.map(b => {
+    const curr = state.expenses.filter(e => monthOf(e.date) === currentMonth && e.category === b.category).reduce((s, e) => s + e.amount, 0);
+    const prev = state.expenses.filter(e => monthOf(e.date) === prevMonth && e.category === b.category).reduce((s, e) => s + e.amount, 0);
+    return { category: b.category.slice(0, 8), actual: curr, anterior: prev, presupuesto: b.limit };
+  }).filter(d => d.actual > 0 || d.anterior > 0);
+
+  // ── Gráfica 2: Flujo libre histórico ─────────────────────────────────────────
+  const flujoData = months.map(({ ym, label }) => {
+    const ingresos = state.incomes.filter(i => monthOf(i.date) === ym).reduce((s, i) => s + i.amount, 0);
+    const gastos = state.expenses.filter(e => monthOf(e.date) === ym).reduce((s, e) => s + e.amount, 0);
+    const cuotas = state.cards.reduce((cs, card) =>
+      cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0), 0
+    );
+    const flujo = ingresos - gastos - cuotas;
+    return { label, ingresos, gastos, flujo };
+  });
+
+  // ── Gráfica 3: Proyección de deudas ──────────────────────────────────────────
+  const proyData = [];
+  let saldoTC = state.cards.reduce((cs, card) =>
+    cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => {
+      if (p.saldoRealAbono != null) return sum + p.saldoRealAbono;
+      const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate);
+      return sum + Math.max(0, (p.paidInstallments > 0 ? rows[p.paidInstallments - 1]?.balance || 0 : p.amount) - (p.abonosCapitalPasados || 0));
+    }, 0), 0
+  );
+  let saldoCreditos = 0;
+
+  saldoCreditos = state.loans.filter(l => !l.isVariable && !l.isPersonal).reduce((s, l) => {
+    const { rows } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments);
+    const currentBalance = l.paidInstallments > 0 ? (rows[l.paidInstallments - 1]?.balance || l.principal) : l.principal;
+    return s + currentBalance;
+  }, 0);
+
+  for (let i = 0; i <= 12; i++) {
+    const d = new Date();
+    d.setMonth(d.getMonth() + i);
+    const label = `${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
+    proyData.push({ label, TC: Math.max(0, Math.round(saldoTC)), Créditos: Math.max(0, Math.round(saldoCreditos)), Total: Math.max(0, Math.round(saldoTC + saldoCreditos)) });
+    // Simulate monthly payment reduction
+    const cuotaTC = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0), 0);
+    const cuotaC = state.loans.filter(l => !l.isVariable && !l.isPersonal).reduce((s, l) => {
+      const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments);
+      return s + (pmt * 0.7); // approx capital portion
+    }, 0);
+    saldoTC = Math.max(0, saldoTC - cuotaTC * 0.6);
+    saldoCreditos = Math.max(0, saldoCreditos - cuotaC);
+  }
+
+  const fmtK = (v) => v >= 1000000 ? `$${(v/1000000).toFixed(1)}M` : v >= 1000 ? `$${Math.round(v/1000)}k` : `$${v}`;
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={{ background: C.surface, border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "10px 14px", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }}>
+        <div style={{ color: C.text, fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{label}</div>
+        {payload.map(p => (
+          <div key={p.name} style={{ display: "flex", justifyContent: "space-between", gap: 16, marginBottom: 2 }}>
+            <span style={{ color: p.color, fontSize: 11 }}>{p.name}</span>
+            <span style={{ color: C.text, fontSize: 11, fontWeight: 600 }}>{fmtK(p.value)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const tabBtn = (id, label, icon) => (
+    <button onClick={() => setReportTab(id)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, border: `1.5px solid ${reportTab === id ? C.accent : C.border}`, background: reportTab === id ? C.accent + "10" : "transparent", color: reportTab === id ? C.accent : C.textMuted, fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+      {icon} {label}
+    </button>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>📊 Reportes</div>
+
+      {/* Tab selector */}
+      <div style={{ display: "flex", gap: 6 }}>
+        {tabBtn("gastos", "Gastos", "🛒")}
+        {tabBtn("flujo", "Flujo", "📈")}
+        {tabBtn("deudas", "Deudas", "💳")}
+      </div>
+
+      {/* ── GASTOS POR CATEGORÍA ── */}
+      {reportTab === "gastos" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Box>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Gastos por categoría</div>
+            <div style={{ color: C.textMuted, fontSize: 11, marginBottom: 16 }}>
+              {fmtMonth(currentMonth)} vs {fmtMonth(prevMonth)}
+            </div>
+            {catData.length === 0 ? (
+              <div style={{ color: C.textMuted, fontSize: 13, textAlign: "center", padding: 24 }}>Sin gastos registrados aún.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={catData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                  <XAxis dataKey="category" tick={{ fontSize: 10, fill: C.textMuted }} />
+                  <YAxis tickFormatter={fmtK} tick={{ fontSize: 10, fill: C.textMuted }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="anterior" name="Mes anterior" fill={C.surfaceHigh} radius={[4,4,0,0]} />
+                  <Bar dataKey="actual" name="Mes actual" fill={C.accent} radius={[4,4,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Box>
+
+          {/* Tabla comparativa */}
+          {catData.length > 0 && (
+            <Box>
+              <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Comparativa detallada</div>
+              {catData.map(d => {
+                const diff = d.actual - d.anterior;
+                const pct = d.anterior > 0 ? ((diff / d.anterior) * 100).toFixed(0) : null;
+                const color = diff > 0 ? C.accentRed : diff < 0 ? "#059669" : C.textMuted;
+                return (
+                  <div key={d.category} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: C.text, fontWeight: 600, fontSize: 13 }}>{d.category}</div>
+                      <div style={{ color: C.textMuted, fontSize: 11 }}>Anterior: {fmt(d.anterior)} · Presupuesto: {fmt(d.presupuesto)}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{fmt(d.actual)}</div>
+                      {pct && <div style={{ color, fontSize: 11, fontWeight: 600 }}>{diff > 0 ? "▲" : "▼"} {Math.abs(pct)}%</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </Box>
+          )}
+        </div>
+      )}
+
+      {/* ── FLUJO LIBRE HISTÓRICO ── */}
+      {reportTab === "flujo" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Box>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Flujo libre — últimos 6 meses</div>
+            <div style={{ color: C.textMuted, fontSize: 11, marginBottom: 16 }}>Ingresos, gastos y flujo neto</div>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={flujoData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: C.textMuted }} />
+                <YAxis tickFormatter={fmtK} tick={{ fontSize: 10, fill: C.textMuted }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="ingresos" name="Ingresos" stroke={C.accent} strokeWidth={2} dot={{ r: 4, fill: C.accent }} />
+                <Line type="monotone" dataKey="gastos" name="Gastos" stroke={C.accentOrange} strokeWidth={2} dot={{ r: 4, fill: C.accentOrange }} />
+                <Line type="monotone" dataKey="flujo" name="Flujo libre" stroke="#059669" strokeWidth={2.5} dot={{ r: 4, fill: "#059669" }} strokeDasharray="5 3" />
+              </LineChart>
+            </ResponsiveContainer>
+          </Box>
+
+          {/* Resumen por mes */}
+          <Box>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Resumen mensual</div>
+            {flujoData.map(d => (
+              <div key={d.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ color: C.text, fontWeight: 600, fontSize: 13, minWidth: 40 }}>{d.label}</div>
+                <div style={{ display: "flex", gap: 12, fontSize: 12 }}>
+                  <span style={{ color: C.accent }}>+{fmtK(d.ingresos)}</span>
+                  <span style={{ color: C.accentOrange }}>-{fmtK(d.gastos)}</span>
+                  <span style={{ color: d.flujo >= 0 ? "#059669" : C.accentRed, fontWeight: 700 }}>{d.flujo >= 0 ? "+" : ""}{fmtK(d.flujo)}</span>
+                </div>
+              </div>
+            ))}
+          </Box>
+        </div>
+      )}
+
+      {/* ── PROYECCIÓN DE DEUDAS ── */}
+      {reportTab === "deudas" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Box>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Proyección de deudas — 12 meses</div>
+            <div style={{ color: C.textMuted, fontSize: 11, marginBottom: 16 }}>Cómo baja el saldo si siguen pagando normalmente</div>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={proyData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis dataKey="label" tick={{ fontSize: 9, fill: C.textMuted }} interval={1} />
+                <YAxis tickFormatter={fmtK} tick={{ fontSize: 10, fill: C.textMuted }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="TC" name="Tarjetas" stroke={C.accentOrange} strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="Créditos" name="Créditos" stroke={C.accentPurple} strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="Total" name="Total deuda" stroke={C.accentRed} strokeWidth={2.5} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </Box>
+
+          {/* Resumen de deudas */}
+          <Box>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Estado actual de deudas</div>
+            {state.cards.map(card => {
+              const saldo = card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => {
+                if (p.saldoRealAbono != null) return sum + p.saldoRealAbono;
+                const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate);
+                return sum + Math.max(0, (p.paidInstallments > 0 ? rows[p.paidInstallments - 1]?.balance || 0 : p.amount) - (p.abonosCapitalPasados || 0));
+              }, 0);
+              if (saldo === 0) return null;
+              return (
+                <div key={card.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <div><div style={{ color: C.text, fontWeight: 600, fontSize: 13 }}>💳 {card.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>Tasa {card.rate}% mensual</div></div>
+                  <div style={{ color: C.accentOrange, fontWeight: 700 }}>{fmt(Math.round(saldo))}</div>
+                </div>
+              );
+            })}
+            {state.loans.filter(l => !l.isVariable && !l.isPersonal && (l.totalInstallments - l.paidInstallments) > 0).map(l => {
+              const { rows } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments, l.paidInstallments);
+              const saldo = l.paidInstallments > 0 ? (rows[l.paidInstallments - 1]?.balance || l.principal) : l.principal;
+              return (
+                <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <div><div style={{ color: C.text, fontWeight: 600, fontSize: 13 }}>🏦 {l.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{l.totalInstallments - l.paidInstallments} cuotas restantes</div></div>
+                  <div style={{ color: C.accentPurple, fontWeight: 700 }}>{fmt(Math.round(saldo))}</div>
+                </div>
+              );
+            })}
+          </Box>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── ROOT APP WITH MULTI-HOGAR ─────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
@@ -3512,12 +3763,12 @@ export default function App() {
     { id: "gastos", icon: "🛒", label: "Gastos" },
     { id: "deudas", icon: "💳", label: "Deudas" },
     { id: "ahorros", icon: "🐷", label: "Ahorros" },
-    { id: "calendario", icon: "📅", label: "Pagos" },
+    { id: "reportes", icon: "📊", label: "Reportes" },
     { id: "asesor", icon: "💡", label: "Asesor" },
     { id: "config", icon: "⚙️", label: "Config" },
   ];
 
-  const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, calendario: Calendario, asesor: Asesor, config: Configuracion };
+  const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, reportes: Reportes, asesor: Asesor, config: Configuracion };
   const View = views[tab];
   const viewProps = tab === "config" ? { state, setState, user } : { state, setState };
 
