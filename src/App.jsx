@@ -223,7 +223,7 @@ const Dashboard = ({ state, setState }) => {
   }, [monthExpenses]);
 
   const totalSpent = Object.values(spentByCategory).reduce((s, v) => s + v, 0);
-  const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
+  const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0), 0);
   const totalLoanDue = state.loans.filter(l => !l.isVariable && !l.isPersonal).reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return s + pmt; }, 0);
   const totalDebtDue = totalCardDue + totalLoanDue;
   const netAvail = totalIncome - totalSpent - totalDebtDue;
@@ -404,7 +404,7 @@ const Dashboard = ({ state, setState }) => {
           {state.cards.map(c => (
             <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
               <div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{c.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>Tarjeta · Cierre día {c.dueDate}</div></div>
-              <Tag color={C.accentOrange}>{fmtShort(c.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : c.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0))}</Tag>
+              <Tag color={C.accentOrange}>{fmtShort(c.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => sum + getPurchasePmt(p, c.rate), 0))}</Tag>
             </div>
           ))}
           {state.loans.filter(l => !l.isVariable && !l.isPersonal).map(l => {
@@ -1833,15 +1833,17 @@ const Deudas = ({ state, setState }) => {
                 if (!cutDay) return;
                 // Fecha de cierre del ciclo actual = día cutDay del mes actual
                 const now = new Date();
-                const cutDate = new Date(now.getFullYear(), now.getMonth(), cutDay);
+                const y = now.getFullYear();
+                const m = String(now.getMonth() + 1).padStart(2, "0");
+                const d = String(cutDay).padStart(2, "0");
+                const cutDateStr = `${y}-${m}-${d}`;
                 setState(s => ({
                   ...s,
                   cards: s.cards.map(c => c.id === card.id ? {
                     ...c,
-                    purchases: c.purchases.map(p => {
-                      const purchaseDate = new Date(p.date);
-                      return { ...p, pendingNextCycle: purchaseDate > cutDate };
-                    })
+                    purchases: c.purchases.map(p => ({
+                      ...p, pendingNextCycle: (p.date || "") > cutDateStr
+                    }))
                   } : c)
                 }));
               }}
@@ -1857,7 +1859,7 @@ const Deudas = ({ state, setState }) => {
             </button>
             <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Compras en cuotas:</div>
             {card.purchases.length === 0 && <div style={{ color: C.textMuted, fontSize: 12 }}>Sin compras registradas</div>}
-            {card.purchases.map(p => { const effectiveRate = p.zeroInterest ? 0 : card.rate; const rows = buildPurchaseAmortization(p.amount, p.installments, effectiveRate); const remaining = p.installments - p.paidInstallments; const nextRow = rows[p.paidInstallments]; const totalInterest = rows.reduce((s, r) => s + r.interest, 0); const isDone = p.paidInstallments >= p.installments; return (
+            {card.purchases.map(p => { const effectiveRate = p.zeroInterest ? 0 : card.rate; const rows = buildPurchaseAmortization(p.amount, p.installments, effectiveRate); const remaining = p.installments - p.paidInstallments; const nextRow = rows[p.paidInstallments]; const totalInterest = rows.reduce((s, r) => s + r.interest, 0); const isDone = p.paidInstallments >= p.installments; const nextPmt = getPurchasePmt(p, card.rate); return (
               <div key={p.id} style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 10, border: `1.5px solid ${isDone ? C.accent + "44" : C.border}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div><div style={{ color: isDone ? C.accent : C.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{p.desc} {isDone && "✓"}{p.zeroInterest && <Tag color={C.accent}>0% interés</Tag>}{p.isPastPurchase && <Tag color={C.textMuted}>Mes anterior</Tag>}{p.pendingNextCycle && <Tag color={C.accentYellow}>Próximo ciclo</Tag>}{p.abonosCapitalPasados > 0 && <Tag color={C.accent}>Abono: -{fmt(p.abonosCapitalPasados)}</Tag>}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{p.date} · {fmt(p.amount)} en {p.installments} cuota(s)</div></div>
@@ -1867,7 +1869,7 @@ const Deudas = ({ state, setState }) => {
                   </div>
                 </div>
                 {!isDone && (<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10, marginBottom: 10 }}>
-                  <div style={{ background: C.surface, borderRadius: 8, padding: 8, textAlign: "center", border: `1px solid ${C.border}` }}><div style={{ color: C.textMuted, fontSize: 10 }}>Próx cuota</div><div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 13 }}>{fmt(nextRow?.pmt || 0)}</div></div>
+                  <div style={{ background: C.surface, borderRadius: 8, padding: 8, textAlign: "center", border: `1px solid ${C.border}` }}><div style={{ color: C.textMuted, fontSize: 10 }}>Próx cuota</div><div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 13 }}>{fmt(nextPmt)}</div></div>
                   <div style={{ background: C.surface, borderRadius: 8, padding: 8, textAlign: "center", border: `1px solid ${C.border}` }}><div style={{ color: C.textMuted, fontSize: 10 }}>Cuotas rest.</div><div style={{ color: C.text, fontWeight: 800, fontSize: 13 }}>{remaining}/{p.installments}</div></div>
                   <div style={{ background: C.surface, borderRadius: 8, padding: 8, textAlign: "center", border: `1px solid ${C.border}` }}><div style={{ color: C.textMuted, fontSize: 10 }}>Total int.</div><div style={{ color: C.accentRed, fontWeight: 800, fontSize: 13 }}>{fmtShort(totalInterest)}</div></div>
                 </div>)}
@@ -2778,7 +2780,7 @@ const Asesor = ({ state }) => {
 
   const totalIncome = state.incomes.reduce((s, i) => s + i.amount, 0);
   const totalSpent = state.budgets.reduce((s, b) => s + b.spent, 0);
-  const totalCardDue = state.cards.reduce((cs, card) => cs + (card.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => { const rows = buildPurchaseAmortization(p.amount, p.installments, p.zeroInterest ? 0 : card.rate); return sum + (rows[p.paidInstallments]?.pmt || 0); }, 0), 0);
+  const totalCardDue = state.cards.reduce((cs, card) => cs + (card.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0), 0);
   const totalLoanDue = state.loans.reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return s + pmt; }, 0);
   const debtRatio = ((totalCardDue + totalLoanDue) / (totalIncome || 1)) * 100;
   const totalSaved = state.savings.reduce((s, sv) => s + sv.current, 0);
@@ -2795,10 +2797,7 @@ const Asesor = ({ state }) => {
     ).join("\n") || "  Sin presupuestos";
 
     const tarjetas = state.cards.map(c => {
-      const due = (c.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => {
-        const rows = buildPurchaseAmortization(p.amount, p.installments, c.rate);
-        return sum + (rows[p.paidInstallments]?.pmt || 0);
-      }, 0);
+      const due = (c.purchases || []).filter(p => p.paidInstallments < p.installments).reduce((sum, p) => sum + getPurchasePmt(p, c.rate), 0);
       return `  · ${c.name}: cuota mes ${fmt(Math.round(due))}, tasa ${c.rate}% mensual`;
     }).join("\n") || "  Sin tarjetas";
 
@@ -3168,13 +3167,17 @@ const Configuracion = ({ state, setState, user }) => {
         };
 
         // Si dueDate cambió, recalcular pendingNextCycle para TODAS las compras
-        // Regla: compra > día cutDay del mes actual → próximo ciclo
+        // Regla: fecha compra > "YYYY-MM-DD" del corte → próximo ciclo
+        // Comparamos strings ISO para evitar problemas de zona horaria
         if (oldDueDate !== newDueDate) {
           const now = new Date();
-          const cutDate = new Date(now.getFullYear(), now.getMonth(), newDueDate);
+          const y = now.getFullYear();
+          const m = String(now.getMonth() + 1).padStart(2, "0");
+          const d = String(newDueDate).padStart(2, "0");
+          const cutDateStr = `${y}-${m}-${d}`; // ej: "2026-04-28"
           updatedCard.purchases = (oldCard.purchases || []).map(p => {
-            const purchaseDate = new Date(p.date);
-            return { ...p, pendingNextCycle: purchaseDate > cutDate };
+            // Comparación de strings: "2026-04-29" > "2026-04-28" → true
+            return { ...p, pendingNextCycle: (p.date || "") > cutDateStr };
           });
         }
 
