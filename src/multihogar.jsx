@@ -45,34 +45,83 @@ const INIT_HOGAR = {
   budgets: [], savings: [], fixedBills: [],
 };
 
-// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
-export const LoginScreen = ({ onLogin, loading }) => (
-  <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-    <div style={{ fontSize: 56, marginBottom: 16 }}>🪺</div>
-    <div style={{ fontSize: 28, fontWeight: 900, color: C.text, letterSpacing: -0.5, marginBottom: 6 }}>NestGrow</div>
-    <div style={{ color: C.textMuted, fontSize: 14, marginBottom: 40, textAlign: "center" }}>
-      El nido que crece · Control financiero del hogar
-    </div>
-    <div style={{ width: "100%", maxWidth: 340, background: C.surface, borderRadius: 20, padding: 28, border: `1.5px solid ${C.border}`, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
-      <div style={{ color: C.text, fontWeight: 800, fontSize: 18, marginBottom: 6, textAlign: "center" }}>Bienvenido 👋</div>
-      <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 24, textAlign: "center", lineHeight: 1.6 }}>
-        Inicia sesión con tu cuenta de Google para acceder o crear tu hogar.
+// ── POLÍTICA DE PRIVACIDAD ────────────────────────────────────────────────────
+export const PrivacyPolicyModal = ({ onClose }) => (
+  <div style={{ position: "fixed", inset: 0, background: "#000000CC", zIndex: 9999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+    <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+      <div style={{ position: "sticky", top: 0, background: C.surface, padding: "20px 24px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>🔒 Política de Privacidad</div>
+        <button onClick={onClose} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
       </div>
-      <button onClick={onLogin} disabled={loading} style={{ ...btn(), display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-        <svg width="20" height="20" viewBox="0 0 48 48">
-          <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/>
-          <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
-          <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.1l-6.2-5.2C29.3 35.5 26.8 36 24 36c-5.1 0-9.6-3.2-11.3-7.8l-6.5 5C9.5 39.5 16.2 44 24 44z"/>
-          <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.3 5.5l6.2 5.2C37 36.8 44 31 44 24c0-1.3-.1-2.6-.4-3.9z"/>
-        </svg>
-        {loading ? "Entrando..." : "Continuar con Google"}
-      </button>
-    </div>
-    <div style={{ color: C.textMuted, fontSize: 11, marginTop: 24, textAlign: "center" }}>
-      Al entrar aceptas que tus datos financieros se guardan<br />de forma privada y encriptada en Google Firebase.
+      <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+
+        <div style={{ color: C.textMuted, fontSize: 11 }}>Versión 1.0 — Mayo 2026</div>
+
+        {[
+          ["1. Introducción", `NestGrow es una plataforma de gestión financiera del hogar comprometida con la protección de la privacidad y la seguridad de los datos de sus usuarios. Esta Política de Privacidad describe cómo recopilamos, almacenamos, protegemos y utilizamos la información que usted nos confía.\n\nAl crear o unirse a un hogar en NestGrow, usted acepta los términos descritos en este documento.`],
+          ["2. Datos que recopilamos", `NestGrow recopila únicamente los datos que usted ingresa voluntariamente:\n\n• Información de identificación: nombre y correo electrónico de su cuenta de Google\n• Información financiera del hogar: ingresos, gastos, deudas, ahorros e inversiones\n• Información de configuración: preferencias, miembros del hogar y categorías\n\nNestGrow no recopila datos de ubicación, contactos, cámara ni ningún otro dato del dispositivo.`],
+          ["3. Cómo protegemos sus datos", `La seguridad de su información es nuestra prioridad principal:\n\n• Aislamiento por hogar: cada hogar tiene un identificador único. Las reglas de seguridad de Firebase garantizan a nivel de infraestructura que ningún usuario puede acceder a datos de otro hogar. Este control es una restricción técnica aplicada directamente por el motor de base de datos.\n\n• Transmisión cifrada: toda comunicación se realiza mediante HTTPS con cifrado TLS, el mismo estándar utilizado por instituciones financieras.\n\n• Autenticación segura: el acceso se realiza exclusivamente mediante Google Sign-In.\n\n• Infraestructura certificada: los datos se almacenan en Google Firebase, que cumple con ISO 27001, SOC 1, SOC 2 y SOC 3.`],
+          ["4. Acceso a sus datos", `Sus datos financieros son de uso exclusivo de los miembros de su hogar.\n\nNestGrow opera bajo un principio de acceso mínimo necesario. Los datos almacenados no son utilizados con ningún fin diferente al funcionamiento técnico de la aplicación. No se realizan análisis, perfilamiento ni procesamiento de la información financiera de los usuarios.`],
+          ["5. Lo que NestGrow NO hace", `• No vende, arrienda ni comparte su información con terceros\n• No utiliza sus datos financieros con fines publicitarios o comerciales\n• No realiza perfilamiento de comportamiento financiero\n• No transfiere sus datos a países con menor protección\n• No accede al contenido de sus registros financieros`],
+          ["6. Retención de datos", `Sus datos se conservan mientras su hogar permanezca activo. Si desea eliminar permanentemente su hogar y toda la información asociada, puede solicitarlo en cualquier momento. La eliminación es irreversible y se ejecuta en un plazo máximo de 30 días hábiles.`],
+          ["7. Sus derechos", `Como usuario de NestGrow, usted tiene derecho a:\n\n• Acceso: consultar en cualquier momento los datos de su hogar\n• Rectificación: corregir cualquier dato directamente desde la aplicación\n• Eliminación: solicitar la eliminación completa de su hogar y sus datos\n• Portabilidad: solicitar una copia de sus datos en formato legible`],
+          ["8. Menores de edad", `NestGrow no está dirigida a personas menores de 18 años. No recopilamos intencionalmente información de menores de edad.`],
+          ["9. Cambios a esta política", `Cualquier modificación será notificada con al menos 30 días de anticipación mediante un aviso visible dentro de la aplicación.`],
+          ["10. Contacto", `Para ejercer sus derechos, solicitar eliminación de datos o resolver cualquier inquietud:\n\n📧 pabloarboleda.redes@gmail.com\n🌐 nestgrow.vercel.app`],
+        ].map(([title, text]) => (
+          <div key={title}>
+            <div style={{ color: C.text, fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{title}</div>
+            <div style={{ color: C.textMuted, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-line" }}>{text}</div>
+          </div>
+        ))}
+
+        <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14, textAlign: "center" }}>
+          <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>
+            NestGrow se compromete a mantener los más altos estándares de privacidad y seguridad para la información financiera de su hogar.
+          </div>
+        </div>
+
+        <button onClick={onClose} style={{ ...btn(), marginTop: 4 }}>Entendido</button>
+      </div>
     </div>
   </div>
 );
+
+// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+export const LoginScreen = ({ onLogin, loading }) => {
+  const [showPolicy, setShowPolicy] = useState(false);
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      {showPolicy && <PrivacyPolicyModal onClose={() => setShowPolicy(false)} />}
+      <div style={{ fontSize: 56, marginBottom: 16 }}>🪺</div>
+      <div style={{ fontSize: 28, fontWeight: 900, color: C.text, letterSpacing: -0.5, marginBottom: 6 }}>NestGrow</div>
+      <div style={{ color: C.textMuted, fontSize: 14, marginBottom: 40, textAlign: "center" }}>
+        El nido que crece · Control financiero del hogar
+      </div>
+      <div style={{ width: "100%", maxWidth: 340, background: C.surface, borderRadius: 20, padding: 28, border: `1.5px solid ${C.border}`, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+        <div style={{ color: C.text, fontWeight: 800, fontSize: 18, marginBottom: 6, textAlign: "center" }}>Bienvenido 👋</div>
+        <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 24, textAlign: "center", lineHeight: 1.6 }}>
+          Inicia sesión con tu cuenta de Google para acceder o crear tu hogar.
+        </div>
+        <button onClick={onLogin} disabled={loading} style={{ ...btn(), display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+          <svg width="20" height="20" viewBox="0 0 48 48">
+            <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.5 6.5 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/>
+            <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 2.9l5.7-5.7C34.5 6.5 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+            <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.1l-6.2-5.2C29.3 35.5 26.8 36 24 36c-5.1 0-9.6-3.2-11.3-7.8l-6.5 5C9.5 39.5 16.2 44 24 44z"/>
+            <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.3 5.5l6.2 5.2C37 36.8 44 31 44 24c0-1.3-.1-2.6-.4-3.9z"/>
+          </svg>
+          {loading ? "Entrando..." : "Continuar con Google"}
+        </button>
+      </div>
+      <div style={{ color: C.textMuted, fontSize: 11, marginTop: 20, textAlign: "center", lineHeight: 1.8 }}>
+        Al continuar aceptas nuestra{" "}
+        <button onClick={() => setShowPolicy(true)} style={{ background: "none", border: "none", color: C.accent, fontSize: 11, cursor: "pointer", textDecoration: "underline", fontFamily: "inherit", padding: 0 }}>
+          Política de Privacidad
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // ── ONBOARDING — Crear o unirse a un hogar ────────────────────────────────────
 export const OnboardingScreen = ({ user, onHogarReady, onLogout }) => {

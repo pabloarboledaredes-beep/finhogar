@@ -4,7 +4,7 @@ import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import {
   LoginScreen, OnboardingScreen, InviteCodeBanner,
-  SistemaPanel, useHogar
+  SistemaPanel, useHogar, PrivacyPolicyModal
 } from "./multihogar.jsx";
 
 // ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
@@ -2967,6 +2967,7 @@ const HogarTab = ({ state, setState, user }) => {
   const [confirmRemove, setConfirmRemove] = useState(null);
   const [copied, setCopied] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [showPolicy, setShowPolicy] = useState(false);
 
   // Guard — if state not ready yet
   if (!state) return <div style={{ color: C.textMuted, padding: 20, textAlign: "center" }}>Cargando...</div>;
@@ -2996,6 +2997,7 @@ const HogarTab = ({ state, setState, user }) => {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {showPolicy && <PrivacyPolicyModal onClose={() => setShowPolicy(false)} />}
 
       {/* Confirm removal modal */}
       {confirmRemove && (
@@ -3098,9 +3100,12 @@ const HogarTab = ({ state, setState, user }) => {
       {/* Privacy */}
       <Box style={{ background: C.accentBlue + "08", borderColor: C.accentBlue + "33" }}>
         <div style={{ color: C.accentBlue, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>🔒 Privacidad de tus datos</div>
-        <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.7 }}>
+        <div style={{ color: C.textMuted, fontSize: 12, lineHeight: 1.7, marginBottom: 12 }}>
           Tus datos están cifrados y protegidos por reglas de seguridad en Firestore. Solo los miembros de tu hogar pueden verlos. Ni el creador de NestGrow tiene acceso.
         </div>
+        <button onClick={() => setShowPolicy(true)} style={{ background: C.accentBlue + "12", border: `1px solid ${C.accentBlue}33`, color: C.accentBlue, borderRadius: 8, padding: "8px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, width: "100%" }}>
+          📄 Ver Política de Privacidad completa
+        </button>
       </Box>
     </div>
   );
