@@ -145,7 +145,7 @@ const Bar = ({ value, max, color = C.accent, h = 5 }) => {
 };
 const Tag = ({ color = C.accent, children }) => <span style={{ background: color + "12", color, fontSize: 11, padding: "3px 9px", borderRadius: 6, fontWeight: 700 }}>{children}</span>;
 const NavBtn = ({ icon, label, active, onClick }) => (
-  <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 10px", borderRadius: 10, border: "none", cursor: "pointer", background: active ? C.accent + "10" : "transparent", color: active ? C.accent : C.textMuted, fontSize: 10, fontWeight: active ? 700 : 500, fontFamily: "inherit" }}>
+  <button onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "7px 14px", borderRadius: 10, border: "none", cursor: "pointer", background: active ? C.accent + "10" : "transparent", color: active ? C.accent : C.textMuted, fontSize: 10, fontWeight: active ? 700 : 500, fontFamily: "inherit", flexShrink: 0, minWidth: 60 }}>
     <span style={{ fontSize: 18 }}>{icon}</span>{label}
   </button>
 );
@@ -3821,16 +3821,20 @@ export default function App() {
         <View {...viewProps} />
       </div>
 
-      {/* Bottom Nav */}
+      {/* Bottom Nav — scrollable horizontal */}
       <div style={{
         position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
         width: "100%", maxWidth: 520, background: "#FFFFFF",
         borderTop: "1.5px solid #E2E6ED",
         paddingTop: 6, paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))",
-        display: "flex", justifyContent: "space-around", zIndex: 100,
-        boxShadow: "0 -2px 12px rgba(0,0,0,0.06)",
+        zIndex: 100, boxShadow: "0 -2px 12px rgba(0,0,0,0.06)",
+        overflowX: "auto", overflowY: "hidden",
+        WebkitOverflowScrolling: "touch",
+        scrollbarWidth: "none", // Firefox
       }}>
-        {nav.map(n => <NavBtn key={n.id} {...n} active={tab === n.id} onClick={() => setTab(n.id)} />)}
+        <div style={{ display: "flex", minWidth: "max-content", paddingLeft: 4, paddingRight: 4 }}>
+          {nav.map(n => <NavBtn key={n.id} {...n} active={tab === n.id} onClick={() => setTab(n.id)} />)}
+        </div>
       </div>
     </div>
   );
