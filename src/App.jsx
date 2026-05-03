@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { auth, db, googleProvider } from "./firebase";
 import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { BarChart, Bar as RBar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import {
   LoginScreen, OnboardingScreen, InviteCodeBanner,
   SistemaPanel, useHogar, PrivacyPolicyModal
@@ -3588,8 +3588,8 @@ const Reportes = ({ state }) => {
                   <YAxis tickFormatter={fmtK} tick={{ fontSize: 10, fill: C.textMuted }} />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="anterior" name="Mes anterior" fill={C.surfaceHigh} radius={[4,4,0,0]} />
-                  <Bar dataKey="actual" name="Mes actual" fill={C.accent} radius={[4,4,0,0]} />
+                  <RBar dataKey="anterior" name="Mes anterior" fill={C.surfaceHigh} radius={[4,4,0,0]} />
+                  <RBar dataKey="actual" name="Mes actual" fill={C.accent} radius={[4,4,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
