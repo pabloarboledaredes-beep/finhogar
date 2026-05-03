@@ -1831,10 +1831,17 @@ const Deudas = ({ state, setState }) => {
               onClick={() => {
                 const cutDay = +card.dueDate;
                 if (!cutDay) return;
-                // Fecha de cierre del ciclo actual = día cutDay del mes actual
+                // El ciclo que acaba de cerrar termina en el día cutDay del mes anterior
+                // (porque hoy ya pasamos ese día en el mes actual)
+                // Ej: hoy 2 mayo, corte día 28 → último corte fue 28 de abril
                 const now = new Date();
-                const y = now.getFullYear();
-                const m = String(now.getMonth() + 1).padStart(2, "0");
+                const cutMonth = new Date(now.getFullYear(), now.getMonth(), cutDay);
+                // Si hoy es ANTES del corte de este mes, el último corte fue el mes pasado
+                const lastCut = now.getDate() <= cutDay
+                  ? new Date(now.getFullYear(), now.getMonth() - 1, cutDay)
+                  : new Date(now.getFullYear(), now.getMonth(), cutDay);
+                const y = lastCut.getFullYear();
+                const m = String(lastCut.getMonth() + 1).padStart(2, "0");
                 const d = String(cutDay).padStart(2, "0");
                 const cutDateStr = `${y}-${m}-${d}`;
                 setState(s => ({
@@ -3171,14 +3178,17 @@ const Configuracion = ({ state, setState, user }) => {
         // Comparamos strings ISO para evitar problemas de zona horaria
         if (oldDueDate !== newDueDate) {
           const now = new Date();
-          const y = now.getFullYear();
-          const m = String(now.getMonth() + 1).padStart(2, "0");
+          // Último corte cerrado: si hoy <= cutDay → fue el mes pasado, si no → fue este mes
+          const lastCut = now.getDate() <= newDueDate
+            ? new Date(now.getFullYear(), now.getMonth() - 1, newDueDate)
+            : new Date(now.getFullYear(), now.getMonth(), newDueDate);
+          const y = lastCut.getFullYear();
+          const m = String(lastCut.getMonth() + 1).padStart(2, "0");
           const d = String(newDueDate).padStart(2, "0");
-          const cutDateStr = `${y}-${m}-${d}`; // ej: "2026-04-28"
-          updatedCard.purchases = (oldCard.purchases || []).map(p => {
-            // Comparación de strings: "2026-04-29" > "2026-04-28" → true
-            return { ...p, pendingNextCycle: (p.date || "") > cutDateStr };
-          });
+          const cutDateStr = `${y}-${m}-${d}`;
+          updatedCard.purchases = (oldCard.purchases || []).map(p => ({
+            ...p, pendingNextCycle: (p.date || "") > cutDateStr
+          }));
         }
 
         return { ...s, cards: s.cards.map(c => c.id === editCardId ? updatedCard : c) };
