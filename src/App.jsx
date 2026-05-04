@@ -930,7 +930,7 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
 };
 
 // ── LOAN CARD COMPONENT ───────────────────────────────────────────────────────
-const LoanCard = ({ loan, state, openEditLoan, deleteLoan, openPayModal, setVarPayModal, setVarPayForm }) => {
+const LoanCard = ({ loan, state, setState, openEditLoan, deleteLoan, openPayModal, setVarPayModal, setVarPayForm }) => {
   const member = state.members.find(m => m.id === loan.holder);
   const linkedBill = (state.fixedBills || []).find(b => b.fromLoanId === loan.id);
 
@@ -1020,6 +1020,19 @@ const LoanCard = ({ loan, state, openEditLoan, deleteLoan, openPayModal, setVarP
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => openEditLoan(loan)} style={{ background: C.accentPurple + "12", border: `1px solid ${C.accentPurple}33`, color: C.accentPurple, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>✏️ Editar</button>
+          {!linkedBill && loan.dueDay && (
+            <button onClick={() => {
+              const newBill = {
+                id: Date.now(), concept: loan.name, category: "Deudas",
+                amount: loan.actualPayment || pmt, dueDay: loan.dueDay,
+                payMethod: "Transferencia", color: C.accentPurple,
+                fromLoanId: loan.id, payments: [],
+              };
+              setState(s => ({ ...s, fixedBills: [...(s.fixedBills || []), newBill] }));
+            }} style={{ background: C.accentBlue + "12", border: `1px solid ${C.accentBlue}33`, color: C.accentBlue, borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+              📅 Crear pago fijo
+            </button>
+          )}
           <button onClick={() => deleteLoan(loan.id)} style={{ background: "none", border: "none", color: C.textSub, cursor: "pointer", fontSize: 18 }}>×</button>
         </div>
       </div>
@@ -2048,7 +2061,7 @@ const Deudas = ({ state, setState }) => {
           </Box>
         )}
 
-        {state.loans.map(loan => <LoanCard key={loan.id} loan={loan} state={state} openEditLoan={openEditLoan} deleteLoan={deleteLoan} openPayModal={openPayModal} setVarPayModal={setVarPayModal} setVarPayForm={setVarPayForm} />)}
+        {state.loans.map(loan => <LoanCard key={loan.id} loan={loan} state={state} setState={setState} openEditLoan={openEditLoan} deleteLoan={deleteLoan} openPayModal={openPayModal} setVarPayModal={setVarPayModal} setVarPayForm={setVarPayForm} />)}
       </>)}
 
       {/* ── CRÉDITOS PERSONALES ── */}
