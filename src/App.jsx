@@ -1378,11 +1378,25 @@ const Deudas = ({ state, setState }) => {
         b.category === cat ? { ...b, spent: (b.spent || 0) + amt } : b
       );
 
+      // Mark linked fixed bill as paid for current month
+      const currentMonth = getCurrentMonth();
+      const linkedBill = (s.fixedBills || []).find(b => b.fromLoanId === loanId);
+      const newFixedBills = linkedBill
+        ? (s.fixedBills || []).map(b => b.id === linkedBill.id ? {
+            ...b,
+            payments: [
+              ...(b.payments || []).filter(p => p.month !== currentMonth),
+              { month: currentMonth, paid: true, paidDate: getToday(), amount: amt },
+            ]
+          } : b)
+        : s.fixedBills;
+
       return {
         ...s,
         loans: s.loans.map(l => l.id === loanId ? updatedLoan : l),
         expenses: [newExpense, ...s.expenses],
         budgets: newBudgets,
+        fixedBills: newFixedBills,
       };
     });
 
