@@ -1059,7 +1059,9 @@ const Deudas = ({ state, setState }) => {
   // Payment modal state
   const [payModal, setPayModal] = useState(null);
   const [payAmount, setPayAmount] = useState("");
-  const [payStrategy, setPayStrategy] = useState("plazo");
+  const [payStrategy, setPayStrategy] = useState("capital");   // "capital" | "extras"
+  const [paySubStrategy, setPaySubStrategy] = useState("plazo"); // "plazo" | "cuota"
+  const [payCategory, setPayCategory] = useState("");
 
   // Variable loan payment modal (Lulo-style)
   const [varPayModal, setVarPayModal] = useState(null); // loanId
@@ -1317,7 +1319,9 @@ const Deudas = ({ state, setState }) => {
   const openPayModal = (loan, pmt, currentBalance) => {
     setPayModal({ loanId: loan.id, calcPmt: pmt, currentBalance });
     setPayAmount(String(loan.actualPayment || pmt));
-    setPayStrategy("plazo");
+    setPayStrategy("capital");
+    setPaySubStrategy("plazo");
+    setPayCategory("");
   };
 
   const confirmLoanPayment = () => {
@@ -1331,50 +1335,62 @@ const Deudas = ({ state, setState }) => {
 
       const r = loan.rate / 100;
       const interest = Math.round(currentBalance * r);
-
-      // Fixed costs that the bank charges on top of the amortization quota
       const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - calcPmt) : 0;
       const effectivePmt = calcPmt + otherCosts;
-
-      // Capital applied = paid amount minus interest minus other costs
-      const capitalPaid = Math.max(0, amt - interest - otherCosts);
       const calcCapital = Math.max(0, calcPmt - interest);
-      const extraCapital = Math.max(0, capitalPaid - calcCapital);
-
-      // isExtra only when paid more than the real expected payment (calcPmt + otherCosts)
-      const isExtra = amt > effectivePmt;
+      const extraAmt = Math.max(0, amt - effectivePmt);
+      const isExtra = extraAmt > 100;
 
       let updatedLoan = { ...loan, paidInstallments: loan.paidInstallments + 1 };
 
-      if (isExtra && extraCapital > 0 && payStrategy === "deuda") {
-        const newBalance = Math.max(0, currentBalance - capitalPaid);
-        const r2 = loan.rate / 100;
-        const newInstallments = r2 === 0
-          ? Math.ceil(newBalance / calcCapital)
-          : Math.ceil(Math.log(calcPmt / (calcPmt - newBalance * r2)) / Math.log(1 + r2));
-        updatedLoan = { ...updatedLoan, totalInstallments: loan.paidInstallments + 1 + Math.max(1, newInstallments) };
+      // Apply extra amount based on strategy
+      if (isExtra && payStrategy === "capital") {
+        const newBalance = Math.max(0, currentBalance - calcCapital - extraAmt);
+        if (paySubStrategy === "plazo") {
+          // Reduce plazo — recalculate remaining installments
+          const remaining = r === 0
+            ? Math.ceil(newBalance / (calcPmt || 1))
+            : newBalance <= 0 ? 0 : Math.ceil(Math.log(calcPmt / Math.max(0.001, calcPmt - newBalance * r)) / Math.log(1 + r));
+          updatedLoan = { ...updatedLoan, totalInstallments: loan.paidInstallments + 1 + Math.max(0, remaining) };
+        }
+        // "cuota" strategy: same installments, new balance → cuota recalculates naturally
       }
 
-      const desc = [
-        `Cuota ${loan.name}`,
-        otherCosts > 0 ? `(incl. ${fmt(otherCosts)} otros costos)` : "",
-        isExtra && extraCapital > 0 ? `(+${fmt(extraCapital)} extra a capital)` : "",
-      ].filter(Boolean).join(" ");
+      // Extra amount as "gastos extras" goes as a separate expense
+      const extraDesc = isExtra && payStrategy === "extras" ? ` + ${fmt(extraAmt)} gastos extras` : "";
+      const capitalDesc = isExtra && payStrategy === "capital" ? ` + ${fmt(extraAmt)} abono capital (${paySubStrategy === "plazo" ? "reduce plazo" : "reduce cuota"})` : "";
 
+      const cat = payCategory || "Otros";
+
+      // Main payment expense
       const newExpense = {
-        id: Date.now(), memberId: loan.holder, category: "Otros",
-        desc, amount: amt, payMethod: "Transferencia", cardId: null, installments: 1, date: getToday(),
+        id: Date.now(),
+        memberId: loan.holder,
+        category: cat,
+        desc: `Cuota ${loan.name}${otherCosts > 0 ? ` (incl. ${fmt(otherCosts)} otros costos)` : ""}${extraDesc}${capitalDesc}`,
+        amount: amt,
+        payMethod: "Transferencia",
+        cardId: null, installments: 1, date: getToday(),
       };
+
+      // Update budget spent
+      const newBudgets = (s.budgets || []).map(b =>
+        b.category === cat ? { ...b, spent: (b.spent || 0) + amt } : b
+      );
 
       return {
         ...s,
         loans: s.loans.map(l => l.id === loanId ? updatedLoan : l),
         expenses: [newExpense, ...s.expenses],
+        budgets: newBudgets,
       };
     });
 
     setPayModal(null);
     setPayAmount("");
+    setPayStrategy("capital");
+    setPaySubStrategy("plazo");
+    setPayCategory("");
   };
 
   const confirmVarPayment = () => {
@@ -1472,86 +1488,73 @@ const Deudas = ({ state, setState }) => {
         const amt = +payAmount || 0;
         const r = loan.rate / 100;
         const interest = Math.round(payModal.currentBalance * r);
-
-        // otherCosts = fixed extra the bank charges (insurance, etc.) — always present
         const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - payModal.calcPmt) : 0;
-
-        // effectivePmt = what you normally pay = calcPmt + otherCosts
         const effectivePmt = payModal.calcPmt + otherCosts;
-
-        // Capital paid = total paid MINUS interest MINUS other costs (not capital)
         const capitalPaid = Math.max(0, amt - interest - otherCosts);
-
-        // Normal capital from calculated pmt (without otherCosts)
         const calcCapital = Math.max(0, payModal.calcPmt - interest);
-
-        // Extra capital = only if paid MORE than effectivePmt
-        const extraCapital = Math.max(0, capitalPaid - calcCapital);
-
-        // isExtra only when paid strictly more than the real expected payment
-        const isExtra = amt > effectivePmt;
+        const extraAmt = Math.max(0, amt - effectivePmt);
+        const isExtra = amt > effectivePmt + 100; // >$100 de diferencia para evitar redondeos
+        const isLess = amt > 0 && amt < effectivePmt;
 
         return (
           <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "92vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                 <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago</div>
                 <button onClick={() => setPayModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
               </div>
               <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>{loan.name} · cuota #{loan.paidInstallments + 1}</div>
 
+              {/* Monto pagado */}
               <Label>¿Cuánto pagaste?</Label>
               <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ ...inputSt, marginBottom: 12, fontSize: 18, fontWeight: 700 }} placeholder={String(effectivePmt)} />
 
-              {/* Breakdown */}
-              <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12, fontWeight: 600 }}>Cuota a pagar</span>
-                  <span style={{ color: C.text, fontSize: 12, fontWeight: 700 }}>{fmt(effectivePmt)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Interés</span>
-                  <span style={{ color: C.accentRed, fontSize: 12 }}>{fmt(interest)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>→ Abono a capital</span>
-                  <span style={{ color: C.accent, fontSize: 12 }}>{fmt(calcCapital)}</span>
-                </div>
-                {otherCosts > 0 && (
+              {/* Desglose */}
+              {amt > 0 && (
+                <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: C.accentYellow, fontSize: 12 }}>→ Otros costos (seguros, etc.)</span>
-                    <span style={{ color: C.accentYellow, fontSize: 12, fontWeight: 600 }}>{fmt(otherCosts)}</span>
+                    <span style={{ color: C.textMuted, fontSize: 12, fontWeight: 600 }}>Cuota esperada</span>
+                    <span style={{ color: C.text, fontSize: 12, fontWeight: 700 }}>{fmt(effectivePmt)}</span>
                   </div>
-                )}
-                {isExtra && (
-                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 2 }}>
-                    <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>+ Abono extra a capital</span>
-                    <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>{fmt(extraCapital)}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>→ Interés</span>
+                    <span style={{ color: C.accentRed, fontSize: 12 }}>{fmt(interest)}</span>
                   </div>
-                )}
-                {amt > 0 && amt < effectivePmt && (
-                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.accentRed}33`, paddingTop: 6, marginTop: 2 }}>
-                    <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>⚠️ Pago incompleto</span>
-                    <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>Faltan {fmt(effectivePmt - amt)}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital</span>
+                    <span style={{ color: C.accent, fontSize: 12 }}>{fmt(calcCapital)}</span>
                   </div>
-                )}
-              </div>
+                  {otherCosts > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: C.accentYellow, fontSize: 12 }}>→ Otros costos</span>
+                      <span style={{ color: C.accentYellow, fontSize: 12, fontWeight: 600 }}>{fmt(otherCosts)}</span>
+                    </div>
+                  )}
+                  {isExtra && (
+                    <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 2 }}>
+                      <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>Diferencia con cuota</span>
+                      <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>+{fmt(extraAmt)}</span>
+                    </div>
+                  )}
+                  {isLess && (
+                    <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.accentRed}33`, paddingTop: 6, marginTop: 2 }}>
+                      <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>⚠️ Pago incompleto</span>
+                      <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>Faltan {fmt(effectivePmt - amt)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              {/* Strategy selector - only if truly extra */}
+              {/* Destino del excedente */}
               {isExtra && (
                 <div style={{ marginBottom: 14 }}>
-                  <Label>¿Para qué usar el abono extra?</Label>
+                  <Label>Los {fmt(extraAmt)} extra son:</Label>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {[
-                      ["plazo", "⏱️ Reducir el plazo", "Terminas antes, misma cuota mensual"],
-                      ["deuda", "💰 Reducir la cuota", "Recalcula cuotas menores con el nuevo saldo"],
+                      ["capital", "💰 Abono a capital", "Reduce el saldo del crédito"],
+                      ["extras", "📋 Gastos extras del crédito", "Seguros, comisiones u otros cobros del banco"],
                     ].map(([val, title, desc]) => (
-                      <button key={val} onClick={() => setPayStrategy(val)} style={{
-                        display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px",
-                        borderRadius: 10, border: `1.5px solid ${payStrategy === val ? C.accentPurple : C.border}`,
-                        background: payStrategy === val ? C.accentPurple + "10" : "transparent",
-                        cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-                      }}>
+                      <button key={val} onClick={() => setPayStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${payStrategy === val ? C.accentPurple : C.border}`, background: payStrategy === val ? C.accentPurple + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                         <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${payStrategy === val ? C.accentPurple : C.border}`, background: payStrategy === val ? C.accentPurple : "transparent", flexShrink: 0, marginTop: 1 }} />
                         <div>
                           <div style={{ color: payStrategy === val ? C.accentPurple : C.text, fontWeight: 700, fontSize: 13 }}>{title}</div>
@@ -1562,6 +1565,37 @@ const Deudas = ({ state, setState }) => {
                   </div>
                 </div>
               )}
+
+              {/* Estrategia de abono a capital */}
+              {isExtra && payStrategy === "capital" && (
+                <div style={{ marginBottom: 14 }}>
+                  <Label>¿Cómo aplicar el abono a capital?</Label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[
+                      ["plazo", "⏱️ Reducir el plazo", "Terminas antes, misma cuota mensual"],
+                      ["cuota", "📉 Reducir la cuota", "Cuotas menores, mismo plazo"],
+                    ].map(([val, title, desc]) => (
+                      <button key={val} onClick={() => setPaySubStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${paySubStrategy === val ? C.accent : C.border}`, background: paySubStrategy === val ? C.accent + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                        <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${paySubStrategy === val ? C.accent : C.border}`, background: paySubStrategy === val ? C.accent : "transparent", flexShrink: 0, marginTop: 1 }} />
+                        <div>
+                          <div style={{ color: paySubStrategy === val ? C.accent : C.text, fontWeight: 700, fontSize: 13 }}>{title}</div>
+                          <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Categoría de presupuesto */}
+              <div style={{ marginBottom: 14 }}>
+                <Label>Categoría del gasto</Label>
+                <select value={payCategory} onChange={e => setPayCategory(e.target.value)} style={inputSt}>
+                  <option value="">— Sin categoría —</option>
+                  {(state.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
+                  {(state.budgets || []).map(b => !state.categories?.includes(b.category) && <option key={b.category} value={b.category}>{b.category}</option>)}
+                </select>
+              </div>
 
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={confirmLoanPayment} style={{ ...btnPrimary(C.accentPurple), flex: 1 }}>✓ Confirmar pago</button>
