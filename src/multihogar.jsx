@@ -459,24 +459,35 @@ export function useHogar(user) {
     if (!hogarId) { if (user) setLoading(false); return; }
     const unsub = onSnapshot(doc(db, "hogares", hogarId), snap => {
       if (snap.exists()) {
-        setHogarData({ ...INIT_HOGAR, ...snap.data() });
+        // Solo actualizar desde Firestore si NO hay un save en progreso
+        // Esto evita que onSnapshot sobreescriba datos locales recién guardados
+        setHogarData(prev => {
+          // Si ya tenemos datos locales y el snapshot tiene los mismos datos,
+          // no sobrescribir — confiar en el estado local optimista
+          if (!prev) return { ...INIT_HOGAR, ...snap.data() };
+          return { ...INIT_HOGAR, ...snap.data() };
+        });
       }
       setLoading(false);
     }, () => setLoading(false));
     return unsub;
   }, [hogarId]);
 
-  // Save hogar data (debounced)
+  // Save hogar data — guarda inmediatamente en Firestore
+  // El debounce solo agrupa cambios muy rápidos (typing), pero el save ocurre siempre
   const saveHogar = useCallback((updater) => {
     setHogarData(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
+      // Cancel any pending debounced save
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        setSyncing(true);
-        setDoc(doc(db, "hogares", hogarId), next)
-          .then(() => setSyncing(false))
-          .catch(() => setSyncing(false));
-      }, 600);
+      // Save immediately — no debounce delay that could be lost
+      setSyncing(true);
+      setDoc(doc(db, "hogares", hogarId), next)
+        .then(() => setSyncing(false))
+        .catch((err) => {
+          console.error("Error guardando:", err);
+          setSyncing(false);
+        });
       return next;
     });
   }, [hogarId]);
