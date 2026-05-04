@@ -3793,12 +3793,13 @@ export default function App() {
     { id: "gastos", icon: "🛒", label: "Gastos" },
     { id: "deudas", icon: "💳", label: "Deudas" },
     { id: "ahorros", icon: "🐷", label: "Ahorros" },
+    { id: "calendario", icon: "📅", label: "Pagos" },
     { id: "reportes", icon: "📊", label: "Reportes" },
     { id: "asesor", icon: "💡", label: "Asesor" },
     { id: "config", icon: "⚙️", label: "Config" },
   ];
 
-  const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, reportes: Reportes, asesor: Asesor, config: Configuracion };
+  const views = { dashboard: Dashboard, ingresos: Ingresos, gastos: Gastos, deudas: Deudas, ahorros: Ahorros, calendario: Calendario, reportes: Reportes, asesor: Asesor, config: Configuracion };
   const View = views[tab];
   const viewProps = tab === "config" ? { state, setState, user } : { state, setState };
 
