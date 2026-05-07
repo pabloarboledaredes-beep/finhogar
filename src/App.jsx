@@ -929,6 +929,70 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
   );
 };
 
+// ── VAR PAY MODAL ─────────────────────────────────────────────────────────────
+const VarPayModal = ({ loanId, state, varPayForm, setVarPayForm, onConfirm, onClose }) => {
+  const loan = state.loans.find(l => l.id === loanId);
+  if (!loan) return null;
+  const capital = +varPayForm.capital || 0;
+  const interest = +varPayForm.interest || 0;
+  const others = +varPayForm.others || 0;
+  const total = capital + interest + others;
+  const currentBal = loan.currentBalance ?? loan.principal;
+  const newBalance = Math.max(0, currentBal - capital);
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago — {loan.name}</div>
+          <button onClick={onClose} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+        </div>
+        <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>Ingresa los valores exactos del extracto</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div><Label>💰 Abono a capital ($)</Label>
+            <input type="number" placeholder="0" value={varPayForm.capital} onChange={e => setVarPayForm(f => ({ ...f, capital: e.target.value }))} style={{ ...inputSt, borderColor: C.accent + "66" }} />
+          </div>
+          <div><Label>📈 Intereses pagados ($)</Label>
+            <input type="number" placeholder="0" value={varPayForm.interest} onChange={e => setVarPayForm(f => ({ ...f, interest: e.target.value }))} style={{ ...inputSt, borderColor: C.accentRed + "66" }} />
+          </div>
+          <div><Label>🔧 Otros costos — seguros, admin ($)</Label>
+            <input type="number" placeholder="0" value={varPayForm.others} onChange={e => setVarPayForm(f => ({ ...f, others: e.target.value }))} style={{ ...inputSt, borderColor: C.accentYellow + "66" }} />
+          </div>
+          <div><Label>Fecha del pago</Label>
+            <DatePicker value={varPayForm.date} onChange={v => setVarPayForm(f => ({ ...f, date: v }))} />
+          </div>
+          {total > 0 && (
+            <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14 }}>
+              <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700, marginBottom: 10 }}>RESUMEN DEL PAGO</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {[["Abono a capital", capital, C.accent], ["Intereses", interest, C.accentRed], ["Otros costos", others, C.accentYellow]].filter(([,v]) => v > 0).map(([label, value, color]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: C.textMuted, fontSize: 13 }}>{label}</span>
+                    <span style={{ color, fontSize: 13, fontWeight: 700 }}>{fmt(value)}</span>
+                  </div>
+                ))}
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: C.text, fontWeight: 700 }}>Total pagado</span>
+                  <span style={{ color: C.text, fontWeight: 900, fontSize: 16 }}>{fmt(total)}</span>
+                </div>
+                {capital > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                    <span style={{ color: C.accentPurple, fontWeight: 700 }}>Nuevo saldo</span>
+                    <span style={{ color: C.accentPurple, fontWeight: 900, fontSize: 18 }}>{fmt(newBalance)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button onClick={onConfirm} style={{ ...btnPrimary(C.accentPurple), flex: 1, padding: "13px" }}>✓ Confirmar pago</button>
+            <button onClick={onClose} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── LOAN CARD COMPONENT ───────────────────────────────────────────────────────
 const LoanCard = ({ loan, state, setState, openEditLoan, deleteLoan, openPayModal, setVarPayModal, setVarPayForm }) => {
   const member = state.members.find(m => m.id === loan.holder);
@@ -1813,76 +1877,16 @@ const Deudas = ({ state, setState }) => {
       )}
 
       {/* Variable Loan Payment Modal */}
-      {varPayModal && (() => {
-        const loan = state.loans.find(l => l.id === varPayModal);
-        if (!loan) return null;
-        const capital = +varPayForm.capital || 0;
-        const interest = +varPayForm.interest || 0;
-        const others = +varPayForm.others || 0;
-        const total = capital + interest + others;
-        const currentBal = loan.currentBalance ?? loan.principal;
-        const newBalance = Math.max(0, currentBal - capital);
-        return (
-          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago — {loan.name}</div>
-                <button onClick={() => setVarPayModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
-              </div>
-              <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>Ingresa los valores exactos del extracto</div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div><Label>💰 Abono a capital ($)</Label>
-                  <input type="number" placeholder="0" value={varPayForm.capital} onChange={e => setVarPayForm(f => ({ ...f, capital: e.target.value }))} style={{ ...inputSt, borderColor: C.accent + "66" }} />
-                </div>
-                <div><Label>📈 Intereses pagados ($)</Label>
-                  <input type="number" placeholder="0" value={varPayForm.interest} onChange={e => setVarPayForm(f => ({ ...f, interest: e.target.value }))} style={{ ...inputSt, borderColor: C.accentRed + "66" }} />
-                </div>
-                <div><Label>🔧 Otros costos — seguros, admin ($)</Label>
-                  <input type="number" placeholder="0" value={varPayForm.others} onChange={e => setVarPayForm(f => ({ ...f, others: e.target.value }))} style={{ ...inputSt, borderColor: C.accentYellow + "66" }} />
-                </div>
-                <div><Label>Fecha del pago</Label>
-                  <DatePicker value={varPayForm.date} onChange={v => setVarPayForm(f => ({ ...f, date: v }))} />
-                </div>
-
-                {total > 0 && (
-                  <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: 14 }}>
-                    <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700, marginBottom: 10 }}>RESUMEN DEL PAGO</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {[
-                        ["Abono a capital", capital, C.accent],
-                        ["Intereses", interest, C.accentRed],
-                        ["Otros costos", others, C.accentYellow],
-                      ].filter(([,v]) => v > 0).map(([label, value, color]) => (
-                        <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ color: C.textMuted, fontSize: 13 }}>{label}</span>
-                          <span style={{ color, fontSize: 13, fontWeight: 700 }}>{fmt(value)}</span>
-                        </div>
-                      ))}
-                      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ color: C.text, fontWeight: 700 }}>Total pagado</span>
-                        <span style={{ color: C.text, fontWeight: 900, fontSize: 16 }}>{fmt(total)}</span>
-                      </div>
-                      {capital > 0 && (
-                        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-                          <span style={{ color: C.accentPurple, fontWeight: 700 }}>Nuevo saldo</span>
-                          <span style={{ color: C.accentPurple, fontWeight: 900, fontSize: 18 }}>{fmt(newBalance)}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  <button onClick={confirmVarPayment} style={{ ...btnPrimary(C.accentPurple), flex: 1, padding: "13px" }}>✓ Confirmar pago</button>
-                  <button onClick={() => setVarPayModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
+      {varPayModal && (
+        <VarPayModal
+          loanId={varPayModal}
+          state={state}
+          varPayForm={varPayForm}
+          setVarPayForm={setVarPayForm}
+          onConfirm={confirmVarPayment}
+          onClose={() => setVarPayModal(null)}
+        />
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ color: C.text, fontSize: 20, fontWeight: 800 }}>Control de Deudas</div>
         {tab === "loans" && <button onClick={() => setShowLoanForm(!showLoanForm)} style={btnPrimary(C.accentPurple)}>+ Crédito</button>}
