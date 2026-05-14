@@ -1378,6 +1378,8 @@ const Deudas = ({ state, setState }) => {
     setCycleAmount("");
     setCycleCategory("");
   };
+
+  const openEditPurchase = (cardId, purchase) => {
     setEditPurchase({ cardId, purchaseId: purchase.id });
     setEditPurchaseForm({
       desc: purchase.desc,
@@ -1445,7 +1447,7 @@ const Deudas = ({ state, setState }) => {
         // Rebuild amortization with new balance and same remaining installments
         const newTotal = purchase.installments;
         // Adjust amount to reflect the abono (reduce principal for remaining)
-        const alreadyPaidCapital = rows.slice(0, purchase.paidInstallments).reduce((s, r) => s + r.capital, 0);
+        const alreadyPaidCapital = rows.slice(0, purchase.paidInstallments).reduce((acc, row) => acc + row.capital, 0);
         const newAmount = alreadyPaidCapital + newBalance;
         updatedPurchase = { ...purchase, amount: newAmount };
       }
@@ -1624,9 +1626,9 @@ const Deudas = ({ state, setState }) => {
         // "cuota" strategy: same installments, new balance → cuota recalculates naturally
       }
 
-      // Extra amount as "gastos extras" goes as a separate expense
+      const strategyLabel = paySubStrategy === "plazo" ? "reduce plazo" : "reduce cuota";
       const extraDesc = isExtra && payStrategy === "extras" ? ` + ${fmt(extraAmt)} gastos extras` : "";
-      const capitalDesc = isExtra && payStrategy === "capital" ? ` + ${fmt(extraAmt)} abono capital (${paySubStrategy === "plazo" ? "reduce plazo" : "reduce cuota"})` : "";
+      const capitalDesc = isExtra && payStrategy === "capital" ? ` + ${fmt(extraAmt)} abono capital (${strategyLabel})` : "";
 
       const cat = payCategory || "Otros";
 
