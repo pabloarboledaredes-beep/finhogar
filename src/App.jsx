@@ -811,6 +811,46 @@ const Gastos = ({ state, setState }) => {
   );
 };
 
+// ── CYCLE PAY MODAL ───────────────────────────────────────────────────────────
+const CyclePayModal = ({ cardId, state, cycleAmount, setCycleAmount, cycleCategory, setCycleCategory, onConfirm, onClose }) => {
+  const card = state.cards.find(c => c.id === cardId);
+  if (!card) return null;
+  const activePurchases = card.purchases.filter(p => p.paidInstallments < p.installments && !p.pendingNextCycle);
+  const calcTotal = activePurchases.reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0);
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>💳 Pagar ciclo — {card.name}</div>
+          <button onClick={onClose} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+        </div>
+        <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+          Avanza una cuota en las <strong>{activePurchases.length}</strong> compras activas. Registra un solo gasto por el total pagado.
+        </div>
+        <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ color: C.textMuted, fontSize: 12 }}>Total calculado del ciclo</span>
+            <span style={{ color: C.text, fontWeight: 700 }}>{fmt(Math.round(calcTotal))}</span>
+          </div>
+          <div style={{ color: C.textMuted, fontSize: 11 }}>Ingresa el valor real pagado al banco (puede incluir intereses, seguros, etc.)</div>
+        </div>
+        <Label>Monto real pagado al banco ($)</Label>
+        <input type="number" value={cycleAmount} onChange={e => setCycleAmount(e.target.value)} placeholder={String(Math.round(calcTotal))} style={{ ...inputSt, fontSize: 18, fontWeight: 700, marginBottom: 14 }} />
+        <Label>Categoría del gasto</Label>
+        <select value={cycleCategory} onChange={e => setCycleCategory(e.target.value)} style={{ ...inputSt, marginBottom: 16 }}>
+          <option value="">— Sin categoría —</option>
+          {(state.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
+          {(state.budgets || []).filter(b => !(state.categories || []).includes(b.category)).map(b => <option key={b.category} value={b.category}>{b.category}</option>)}
+        </select>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onConfirm} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>✓ Registrar pago del ciclo</button>
+          <button onClick={onClose} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── PAST PURCHASE MODAL ───────────────────────────────────────────────────────
 const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClose }) => {
   const card = state.cards.find(c => c.id === cardId);
@@ -1783,49 +1823,18 @@ const Deudas = ({ state, setState }) => {
       )}
 
       {/* Cycle Payment Modal */}
-      {cycleModal && (() => {
-        const card = state.cards.find(c => c.id === cycleModal);
-        if (!card) return null;
-        const activePurchases = card.purchases.filter(p => p.paidInstallments < p.installments && !p.pendingNextCycle);
-        const calcTotal = activePurchases.reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0);
-        return (
-          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>💳 Pagar ciclo — {card.name}</div>
-                <button onClick={() => setCycleModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
-              </div>
-              <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
-                Avanza una cuota en las <strong>{activePurchases.length}</strong> compras activas del ciclo actual. Registra un solo gasto por el total pagado.
-              </div>
-
-              {/* Calc reference */}
-              <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Total calculado del ciclo</span>
-                  <span style={{ color: C.text, fontWeight: 700 }}>{fmt(Math.round(calcTotal))}</span>
-                </div>
-                <div style={{ color: C.textMuted, fontSize: 11 }}>Ingresa el valor real que pagaste al banco (puede incluir intereses, seguros, etc.)</div>
-              </div>
-
-              <Label>Monto real pagado al banco ($)</Label>
-              <input type="number" value={cycleAmount} onChange={e => setCycleAmount(e.target.value)} placeholder={String(Math.round(calcTotal))} style={{ ...inputSt, fontSize: 18, fontWeight: 700, marginBottom: 14 }} />
-
-              <Label>Categoría del gasto</Label>
-              <select value={cycleCategory} onChange={e => setCycleCategory(e.target.value)} style={{ ...inputSt, marginBottom: 16 }}>
-                <option value="">— Sin categoría —</option>
-                {(state.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
-                {(state.budgets || []).filter(b => !(state.categories || []).includes(b.category)).map(b => <option key={b.category} value={b.category}>{b.category}</option>)}
-              </select>
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={confirmCyclePayment} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>✓ Registrar pago del ciclo</button>
-                <button onClick={() => setCycleModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {cycleModal && (
+        <CyclePayModal
+          cardId={cycleModal}
+          state={state}
+          cycleAmount={cycleAmount}
+          setCycleAmount={setCycleAmount}
+          cycleCategory={cycleCategory}
+          setCycleCategory={setCycleCategory}
+          onConfirm={confirmCyclePayment}
+          onClose={() => setCycleModal(null)}
+        />
+      )}
 
       {/* Capital Payment Modal — abono a capital TC */}
       {capitalModal && (() => {
