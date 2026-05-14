@@ -463,15 +463,12 @@ const Dashboard = ({ state, setState }) => {
             const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments);
             return (<div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{l.name}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{l.bank} · Crédito</div></div><Tag color={C.accentPurple}>{fmtShort(pmt)}</Tag></div>);
           })}
-          {(() => {
-            const cm = getCurrentMonth();
-            const alerts = (state.fixedBills || []).filter(b => !b.payments?.find(p => p.month === cm)?.paid).map(b => ({ ...b, daysLeft: getDaysUntilDue(b.dueDay) })).filter(b => b.daysLeft <= 7).sort((a, b2) => a.daysLeft - b2.daysLeft);
-            if (!alerts.length) return null;
-            return (<>
+          {(state.fixedBills || []).filter(b => !b.payments?.find(p => p.month === getCurrentMonth())?.paid && getDaysUntilDue(b.dueDay) <= 7).sort((a, b2) => getDaysUntilDue(a.dueDay) - getDaysUntilDue(b2.dueDay)).length > 0 && (
+            <>
               <div style={{ color: C.accentYellow, fontSize: 11, fontWeight: 700, marginTop: 10, marginBottom: 4 }}>⚠️ PAGOS FIJOS PRÓXIMOS (7 días)</div>
-              {alerts.map(b => { const st = getAlertStyle(getAlertLevel(b.daysLeft)); return (<div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{b.concept}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{b.category} · Día {b.dueDay}</div></div><div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}><span style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{fmtShort(b.amount)}</span><Tag color={st.color}>{st.label}</Tag></div></div>); })}
-            </>);
-          })()}
+              {(state.fixedBills || []).filter(b => !b.payments?.find(p => p.month === getCurrentMonth())?.paid && getDaysUntilDue(b.dueDay) <= 7).sort((a, b2) => getDaysUntilDue(a.dueDay) - getDaysUntilDue(b2.dueDay)).map(b => { const st = getAlertStyle(getAlertLevel(b.daysLeft || getDaysUntilDue(b.dueDay))); return (<div key={b.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}><div><div style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>{b.concept}</div><div style={{ color: C.textMuted, fontSize: 11 }}>{b.category} · Día {b.dueDay}</div></div><div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}><span style={{ color: C.text, fontWeight: 700, fontSize: 13 }}>{fmtShort(b.amount)}</span><Tag color={st.color}>{st.label}</Tag></div></div>); })}
+            </>
+          )}
         </Box>
       )}
 
@@ -731,33 +728,9 @@ const Gastos = ({ state, setState }) => {
                   </div>
                 </button>
               )}
-              {expForm.amount && expForm.cardId && (+expForm.installments || 0) > 1 && (() => {
-                const card = state.cards.find(c => c.id === +expForm.cardId);
-                const rate = expForm.zeroInterest ? 0 : (card?.rate || 2.0);
-                const rows = buildPurchaseAmortization(+expForm.amount, +expForm.installments, rate);
-                const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
-                return (
-                  <Box style={{ background: C.surfaceAlt, border: "none" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                      <div style={{ color: C.accentOrange, fontSize: 12, fontWeight: 700 }}>Vista previa amortización</div>
-                      <Tag color={expForm.zeroInterest ? C.accent : C.accentOrange}>
-                        {expForm.zeroInterest ? "Sin interés" : `Tasa ${card?.rate || 2}%/mes`}
-                      </Tag>
-                    </div>
-                    {totalInterest > 0 && (
-                      <div style={{ color: C.accentRed, fontSize: 11, marginBottom: 6, fontWeight: 600 }}>
-                        Total interés a pagar: {fmt(totalInterest)}
-                      </div>
-                    )}
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
-                        <thead><tr>{["#","Cuota","Interés","Capital","Saldo"].map(h => <th key={h} style={{ color: C.textMuted, padding: "5px 4px", textAlign: "right" }}>{h}</th>)}</tr></thead>
-                        <tbody>{rows.map((r, i) => <tr key={i}><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{r.cuota}</td><td style={{ color: C.text, padding: "4px", textAlign: "right", fontWeight: 600 }}>{fmtShort(r.pmt)}</td><td style={{ color: r.interest > 0 ? C.accentRed : C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.interest)}</td><td style={{ color: C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.capital)}</td><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{fmtShort(r.balance)}</td></tr>)}</tbody>
-                      </table>
-                    </div>
-                  </Box>
-                );
-              })()}
+              {expForm.amount && expForm.cardId && (+expForm.installments || 0) > 1 && (
+                <GastosAmortPreview expForm={expForm} state={state} />
+              )}
             </>)}
             <div style={{ overflow: "hidden" }}><Label>Fecha</Label><DatePicker value={expForm.date} onChange={v => setExpForm(f => ({ ...f, date: v }))} /></div>
             <div style={{ display: "flex", gap: 8 }}><button onClick={addExpense} style={btnPrimary()}>Registrar</button><button onClick={() => setShowExpForm(false)} style={btnGhost}>Cancelar</button></div>
@@ -1066,47 +1039,21 @@ const PastPurchaseModal = ({ cardId, state, pastForm, setPastForm, onSave, onClo
           {nextRow && remaining > 0 && (
             <div style={{ background: C.accentOrange + "08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12 }}>
               <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 8 }}>Vista previa de cuotas pendientes</div>
-              {abonosExtra > 0 && (() => {
-                const saldoTabla2 = rate === 0
-                  ? Math.round((+pastForm.amount / total) * remaining)
-                  : (paid === 0 ? +pastForm.amount : (rows[paid - 1]?.balance || 0));
+              {abonosExtra > 0 ? (() => {
+                const saldoTabla2 = rate === 0 ? Math.round((+pastForm.amount / total) * remaining) : (paid === 0 ? +pastForm.amount : (rows[paid - 1]?.balance || 0));
                 const saldoRealCalc = Math.max(0, saldoTabla2 - abonosExtra);
                 const r2 = rate / 100;
-                const newCuota = r2 === 0
-                  ? Math.round(saldoRealCalc / remaining)
-                  : Math.round((saldoRealCalc * r2 * Math.pow(1 + r2, remaining)) / (Math.pow(1 + r2, remaining) - 1));
+                const newCuota = r2 === 0 ? Math.round(saldoRealCalc / remaining) : Math.round((saldoRealCalc * r2 * Math.pow(1 + r2, remaining)) / (Math.pow(1 + r2, remaining) - 1));
                 return (<>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ color: C.textMuted, fontSize: 12 }}>Cuota original (#{paid + 1})</span>
-                    <span style={{ color: C.textMuted, fontSize: 12, textDecoration: "line-through" }}>{fmt(nextRow.pmt)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>Nueva cuota (#{paid + 1})</span>
-                    <span style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>{fmt(newCuota)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
-                    <span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo real pendiente</span>
-                    <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(saldoRealCalc)}</span>
-                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Cuota original (#{paid + 1})</span><span style={{ color: C.textMuted, fontSize: 12, textDecoration: "line-through" }}>{fmt(nextRow.pmt)}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>Nueva cuota (#{paid + 1})</span><span style={{ color: C.accent, fontSize: 12, fontWeight: 700 }}>{fmt(newCuota)}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span><span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12 }}>Saldo real pendiente</span><span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(saldoRealCalc)}</span></div>
                 </>);
-              })()}
-              {!abonosExtra && (<>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Próxima cuota (#{paid + 1})</span>
-                  <span style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{fmt(nextRow.pmt)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
-                  <span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo pendiente</span>
-                  <span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(rows[paid]?.balance || 0)}</span>
-                </div>
+              })() : (<>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Próxima cuota (#{paid + 1})</span><span style={{ color: C.text, fontWeight: 700, fontSize: 12 }}>{fmt(nextRow.pmt)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span><span style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12 }}>{remaining} de {total}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12 }}>Saldo pendiente</span><span style={{ color: C.accentPurple, fontWeight: 700, fontSize: 12 }}>{fmt(rows[paid]?.balance || 0)}</span></div>
               </>)}
             </div>
           )}
@@ -2096,23 +2043,9 @@ const Deudas = ({ state, setState }) => {
               </button>
 
               {/* Actual payment — key new field */}
-              {loanForm.principal && loanForm.rate && loanForm.totalInstallments && (() => {
-                const calcPmt = Math.round(buildLoanAmortization(+loanForm.principal, +loanForm.rate, +loanForm.totalInstallments).pmt);
-                return (
-                  <div style={{ background: C.accentPurple + "08", borderRadius: 10, padding: 12 }}>
-                    <div style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
-                      Cuota calculada: <strong>{fmt(calcPmt)}</strong>
-                    </div>
-                    <Label>Cuota real que paga (si es diferente)</Label>
-                    <input type="number" placeholder={`Dejar vacío si es ${fmt(calcPmt)}`} value={loanForm.actualPayment} onChange={e => setLoanForm(f => ({ ...f, actualPayment: e.target.value }))} style={inputSt} />
-                    {loanForm.actualPayment && +loanForm.actualPayment !== calcPmt && (
-                      <div style={{ color: C.accentYellow, fontSize: 12, marginTop: 6, fontWeight: 600 }}>
-                        Diferencia de {fmt(Math.abs(+loanForm.actualPayment - calcPmt))} → se registrará como "otros costos"
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              {loanForm.principal && loanForm.rate && loanForm.totalInstallments && (
+                <LoanFormPreview loanForm={loanForm} setLoanForm={setLoanForm} />
+              )}
 
               <div><Label>Titular</Label>
                 <select value={loanForm.holder} onChange={e => setLoanForm(f => ({ ...f, holder: e.target.value }))} style={inputSt}>
@@ -2808,6 +2741,73 @@ const Ahorros = ({ state, setState }) => {
   );
 };
 
+// ── LOAN FORM PREVIEW ─────────────────────────────────────────────────────────
+const LoanFormPreview = ({ loanForm, setLoanForm }) => {
+  const calcPmt = Math.round(buildLoanAmortization(+loanForm.principal, +loanForm.rate, +loanForm.totalInstallments).pmt);
+  return (
+    <div style={{ background: C.accentPurple + "08", borderRadius: 10, padding: 12 }}>
+      <div style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+        Cuota calculada: <strong>{fmt(calcPmt)}</strong>
+      </div>
+      <Label>Cuota real que paga (si es diferente)</Label>
+      <input type="number" placeholder={`Dejar vacío si es ${fmt(calcPmt)}`} value={loanForm.actualPayment} onChange={e => setLoanForm(f => ({ ...f, actualPayment: e.target.value }))} style={inputSt} />
+      {loanForm.actualPayment && +loanForm.actualPayment !== calcPmt && (
+        <div style={{ color: C.accentYellow, fontSize: 12, marginTop: 6, fontWeight: 600 }}>
+          Diferencia de {fmt(Math.abs(+loanForm.actualPayment - calcPmt))} → se registrará como "otros costos"
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── CONFIRM PAY MODAL ─────────────────────────────────────────────────────────
+const ConfirmPayModal = ({ billId, state, onConfirm, onClose }) => {
+  const bill = (state.fixedBills || []).find(b => b.id === billId);
+  if (!bill) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ background: C.surface, border: `1.5px solid ${bill.color}66`, borderRadius: 20, padding: 24, maxWidth: 340, width: "100%" }}>
+        <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>✅</div>
+        <div style={{ color: C.text, fontWeight: 800, fontSize: 16, textAlign: "center", marginBottom: 6 }}>Confirmar pago</div>
+        <div style={{ color: C.textMuted, fontSize: 13, textAlign: "center", marginBottom: 18, lineHeight: 1.6 }}>
+          ¿Marcar <strong style={{ color: bill.color }}>{bill.concept}</strong> como pagado?<br />
+          Se registrará <strong style={{ color: C.accent }}>{fmt(bill.amount)}</strong> en gastos<br />
+          y se descontará del presupuesto de <strong>{bill.category}</strong>.
+          {bill.fromLoanId && <><br /><span style={{ color: C.accentPurple, fontWeight: 700 }}>🏦 Avanzará una cuota del crédito vinculado.</span></>}
+          {bill.fromCardId && <><br /><span style={{ color: C.accentOrange, fontWeight: 700 }}>💳 Avanzará una cuota de la compra vinculada.</span></>}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onConfirm} style={{ ...btnPrimary(), flex: 1 }}>✓ Sí, está pagado</button>
+          <button onClick={onClose} style={{ ...btnGhost, flex: 1 }}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── GASTOS AMORT PREVIEW ──────────────────────────────────────────────────────
+const GastosAmortPreview = ({ expForm, state }) => {
+  const card = state.cards.find(c => c.id === +expForm.cardId);
+  const rate = expForm.zeroInterest ? 0 : (card?.rate || 2.0);
+  const rows = buildPurchaseAmortization(+expForm.amount, +expForm.installments, rate);
+  const totalInterest = rows.reduce((s, r) => s + r.interest, 0);
+  return (
+    <Box style={{ background: C.surfaceAlt, border: "none" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ color: C.accentOrange, fontSize: 12, fontWeight: 700 }}>Vista previa amortización</div>
+        <Tag color={expForm.zeroInterest ? C.accent : C.accentOrange}>{expForm.zeroInterest ? "Sin interés" : `Tasa ${card?.rate || 2}%/mes`}</Tag>
+      </div>
+      {totalInterest > 0 && <div style={{ color: C.accentRed, fontSize: 11, marginBottom: 6, fontWeight: 600 }}>Total interés a pagar: {fmt(totalInterest)}</div>}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+          <thead><tr>{["#","Cuota","Interés","Capital","Saldo"].map(h => <th key={h} style={{ color: C.textMuted, padding: "5px 4px", textAlign: "right" }}>{h}</th>)}</tr></thead>
+          <tbody>{rows.map((r, i) => <tr key={i}><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{r.cuota}</td><td style={{ color: C.text, padding: "4px", textAlign: "right", fontWeight: 600 }}>{fmtShort(r.pmt)}</td><td style={{ color: r.interest > 0 ? C.accentRed : C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.interest)}</td><td style={{ color: C.accent, padding: "4px", textAlign: "right" }}>{fmtShort(r.capital)}</td><td style={{ color: C.textMuted, padding: "4px", textAlign: "right" }}>{fmtShort(r.balance)}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </Box>
+  );
+};
+
 // ── CALENDARIO ────────────────────────────────────────────────────────────────
 const Calendario = ({ state, setState }) => {
   const [viewMonth, setViewMonth] = useState(getCurrentMonth());
@@ -2913,16 +2913,14 @@ const Calendario = ({ state, setState }) => {
           </div>
         </Box>
       )}
-      {confirmPay !== null && (() => { const bill = state.fixedBills.find(b => b.id === confirmPay); if (!bill) return null; return (
-        <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-          <div style={{ background: C.surface, border: `1.5px solid ${bill.color}66`, borderRadius: 20, padding: 24, maxWidth: 340, width: "100%" }}>
-            <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>✅</div>
-            <div style={{ color: C.text, fontWeight: 800, fontSize: 16, textAlign: "center", marginBottom: 6 }}>Confirmar pago</div>
-            <div style={{ color: C.textMuted, fontSize: 13, textAlign: "center", marginBottom: 18, lineHeight: 1.6 }}>¿Marcar <strong style={{ color: bill.color }}>{bill.concept}</strong> como pagado?<br />Se registrará <strong style={{ color: C.accent }}>{fmt(bill.amount)}</strong> en gastos<br />y se descontará del presupuesto de <strong>{bill.category}</strong>.{bill.fromLoanId && <><br /><span style={{ color: C.accentPurple, fontWeight: 700 }}>🏦 Avanzará una cuota del crédito vinculado.</span></>}{bill.fromCardId && <><br /><span style={{ color: C.accentOrange, fontWeight: 700 }}>💳 Avanzará una cuota de la compra vinculada.</span></>}</div>
-            <div style={{ display: "flex", gap: 10 }}><button onClick={() => markPaid(confirmPay)} style={{ ...btnPrimary(), flex: 1 }}>✓ Sí, está pagado</button><button onClick={() => setConfirmPay(null)} style={{ ...btnGhost, flex: 1 }}>Cancelar</button></div>
-          </div>
-        </div>
-      ); })()}
+      {confirmPay !== null && (
+        <ConfirmPayModal
+          billId={confirmPay}
+          state={state}
+          onConfirm={() => markPaid(confirmPay)}
+          onClose={() => setConfirmPay(null)}
+        />
+      )}
       {sortedBills.length === 0 && <Box style={{ textAlign: "center", padding: 40 }}><div style={{ fontSize: 40, marginBottom: 10 }}>📅</div><div style={{ color: C.textMuted, fontSize: 14 }}>Sin pagos fijos registrados.<br />Agrega tu primer pago fijo.</div></Box>}
       {sortedBills.map(bill => { const payment = getPayment(bill); const isPaid = payment?.paid; const daysLeft = isCurrentMonth ? getDaysUntilDue(bill.dueDay) : null; const level = isCurrentMonth && !isPaid ? getAlertLevel(daysLeft) : null; const alertSt = level ? getAlertStyle(level) : null; return (
         <div key={bill.id} style={{ background: C.surface, border: `1.5px solid ${isPaid ? C.accent + "44" : alertSt?.color ? alertSt.color + "33" : C.border}`, borderRadius: 16, overflow: "hidden", opacity: isPaid ? 0.85 : 1, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
