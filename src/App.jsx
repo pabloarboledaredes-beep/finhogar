@@ -811,6 +811,137 @@ const Gastos = ({ state, setState }) => {
   );
 };
 
+// ── LOAN PAY MODAL ────────────────────────────────────────────────────────────
+const LoanPayModal = ({ payModal, state, payAmount, setPayAmount, payStrategy, setPayStrategy, paySubStrategy, setPaySubStrategy, payCategory, setPayCategory, onConfirm, onClose }) => {
+  const loan = state.loans.find(l => l.id === payModal.loanId);
+  if (!loan) return null;
+  const amt = +payAmount || 0;
+  const r = loan.rate / 100;
+  const interest = Math.round(payModal.currentBalance * r);
+  const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - payModal.calcPmt) : 0;
+  const effectivePmt = payModal.calcPmt + otherCosts;
+  const calcCapital = Math.max(0, payModal.calcPmt - interest);
+  const extraAmt = Math.max(0, amt - effectivePmt);
+  const isExtra = amt > effectivePmt + 100;
+  const isLess = amt > 0 && amt < effectivePmt;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "92vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago</div>
+          <button onClick={onClose} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+        </div>
+        <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>{loan.name} · cuota #{loan.paidInstallments + 1}</div>
+        <Label>¿Cuánto pagaste?</Label>
+        <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ ...inputSt, marginBottom: 12, fontSize: 18, fontWeight: 700 }} placeholder={String(effectivePmt)} />
+        {amt > 0 && (
+          <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12, fontWeight: 600 }}>Cuota esperada</span><span style={{ color: C.text, fontSize: 12, fontWeight: 700 }}>{fmt(effectivePmt)}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12 }}>→ Interés</span><span style={{ color: C.accentRed, fontSize: 12 }}>{fmt(interest)}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital</span><span style={{ color: C.accent, fontSize: 12 }}>{fmt(calcCapital)}</span></div>
+            {otherCosts > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.accentYellow, fontSize: 12 }}>→ Otros costos</span><span style={{ color: C.accentYellow, fontSize: 12, fontWeight: 600 }}>{fmt(otherCosts)}</span></div>}
+            {isExtra && <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 2 }}><span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>Diferencia</span><span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>+{fmt(extraAmt)}</span></div>}
+            {isLess && <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.accentRed}33`, paddingTop: 6, marginTop: 2 }}><span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>⚠️ Pago incompleto</span><span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>Faltan {fmt(effectivePmt - amt)}</span></div>}
+          </div>
+        )}
+        {isExtra && (
+          <div style={{ marginBottom: 14 }}>
+            <Label>Los {fmt(extraAmt)} extra son:</Label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[["capital","💰 Abono a capital","Reduce el saldo del crédito"],["extras","📋 Gastos extras","Seguros, comisiones u otros cobros"]].map(([val,title,desc]) => (
+                <button key={val} onClick={() => setPayStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${payStrategy===val?C.accentPurple:C.border}`, background: payStrategy===val?C.accentPurple+"10":"transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${payStrategy===val?C.accentPurple:C.border}`, background: payStrategy===val?C.accentPurple:"transparent", flexShrink: 0, marginTop: 1 }} />
+                  <div><div style={{ color: payStrategy===val?C.accentPurple:C.text, fontWeight: 700, fontSize: 13 }}>{title}</div><div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div></div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {isExtra && payStrategy === "capital" && (
+          <div style={{ marginBottom: 14 }}>
+            <Label>¿Cómo aplicar el abono?</Label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[["plazo","⏱️ Reducir el plazo","Terminas antes, misma cuota"],["cuota","📉 Reducir la cuota","Cuotas menores, mismo plazo"]].map(([val,title,desc]) => (
+                <button key={val} onClick={() => setPaySubStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${paySubStrategy===val?C.accent:C.border}`, background: paySubStrategy===val?C.accent+"10":"transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${paySubStrategy===val?C.accent:C.border}`, background: paySubStrategy===val?C.accent:"transparent", flexShrink: 0, marginTop: 1 }} />
+                  <div><div style={{ color: paySubStrategy===val?C.accent:C.text, fontWeight: 700, fontSize: 13 }}>{title}</div><div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div></div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ marginBottom: 14 }}>
+          <Label>Categoría del gasto</Label>
+          <select value={payCategory} onChange={e => setPayCategory(e.target.value)} style={inputSt}>
+            <option value="">— Sin categoría —</option>
+            {(state.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
+            {(state.budgets || []).filter(b => !(state.categories||[]).includes(b.category)).map(b => <option key={b.category} value={b.category}>{b.category}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onConfirm} style={{ ...btnPrimary(C.accentPurple), flex: 1 }}>✓ Confirmar pago</button>
+          <button onClick={onClose} style={{ ...btnGhost, flex: 1 }}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── CAPITAL MODAL ─────────────────────────────────────────────────────────────
+const CapitalModal = ({ capitalModal, state, capitalAmount, setCapitalAmount, capitalStrategy, setCapitalStrategy, onConfirm, onClose }) => {
+  const card = state.cards.find(c => c.id === capitalModal.cardId);
+  const purchase = card?.purchases.find(p => p.id === capitalModal.purchaseId);
+  if (!card || !purchase) return null;
+  const abono = +capitalAmount || 0;
+  const rate = purchase.zeroInterest ? 0 : card.rate;
+  const rows = buildPurchaseAmortization(purchase.amount, purchase.installments, rate);
+  const currentBalance = purchase.paidInstallments > 0 ? rows[purchase.paidInstallments - 1]?.balance || 0 : purchase.amount;
+  const newBalance = Math.max(0, currentBalance - abono);
+  const cuota = rows[purchase.paidInstallments]?.pmt || 0;
+  const r = rate / 100;
+  const currentRemaining = purchase.installments - purchase.paidInstallments;
+  const newRemaining = capitalStrategy === "plazo"
+    ? (r === 0 ? Math.ceil(newBalance / (purchase.amount / purchase.installments)) : newBalance <= 0 ? 0 : Math.ceil(Math.log(cuota / Math.max(0.001, cuota - newBalance * r)) / Math.log(1 + r)))
+    : currentRemaining;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentOrange}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>💰 Abono a capital</div>
+          <button onClick={onClose} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+        </div>
+        <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 16 }}>{purchase.desc} · {card.name}</div>
+        <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Saldo actual</span><span style={{ color: C.text, fontWeight: 700 }}>{fmt(currentBalance)}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span><span style={{ color: C.text, fontWeight: 700 }}>{currentRemaining}</span></div>
+        </div>
+        <Label>Monto a abonar a capital ($)</Label>
+        <input type="number" value={capitalAmount} onChange={e => setCapitalAmount(e.target.value)} style={{ ...inputSt, marginBottom: 14, fontSize: 18, fontWeight: 700 }} placeholder="0" />
+        <Label>¿Para qué usar el abono?</Label>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+          {[["plazo","⏱️ Reducir el plazo",`Cuotas: ${currentRemaining} → ~${Math.max(0,newRemaining)}`],["cuota","💰 Reducir la cuota","Mismo plazo, cuota más baja"]].map(([val,title,desc]) => (
+            <button key={val} onClick={() => setCapitalStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${capitalStrategy===val?C.accentOrange:C.border}`, background: capitalStrategy===val?C.accentOrange+"10":"transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+              <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${capitalStrategy===val?C.accentOrange:C.border}`, background: capitalStrategy===val?C.accentOrange:"transparent", flexShrink: 0, marginTop: 1 }} />
+              <div><div style={{ color: capitalStrategy===val?C.accentOrange:C.text, fontWeight: 700, fontSize: 13 }}>{title}</div><div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div></div>
+            </button>
+          ))}
+        </div>
+        {abono > 0 && (
+          <div style={{ background: C.accentOrange+"08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+            <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 6 }}>Resultado del abono</div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ color: C.textMuted, fontSize: 12 }}>Nuevo saldo</span><span style={{ color: C.accent, fontWeight: 700 }}>{fmt(newBalance)}</span></div>
+            {capitalStrategy === "plazo" && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span><span style={{ color: C.accentOrange, fontWeight: 700 }}>{currentRemaining} → {Math.max(0,newRemaining)}</span></div>}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onConfirm} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>✓ Confirmar abono</button>
+          <button onClick={onClose} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── CYCLE PAY MODAL ───────────────────────────────────────────────────────────
 const CyclePayModal = ({ cardId, state, cycleAmount, setCycleAmount, cycleCategory, setCycleCategory, onConfirm, onClose }) => {
   const card = state.cards.find(c => c.id === cardId);
@@ -1686,129 +1817,22 @@ const Deudas = ({ state, setState }) => {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
       {/* Pay modal */}
-      {payModal && (() => {
-        const loan = state.loans.find(l => l.id === payModal.loanId);
-        if (!loan) return null;
-        const amt = +payAmount || 0;
-        const r = loan.rate / 100;
-        const interest = Math.round(payModal.currentBalance * r);
-        const otherCosts = loan.actualPayment ? Math.max(0, loan.actualPayment - payModal.calcPmt) : 0;
-        const effectivePmt = payModal.calcPmt + otherCosts;
-        const capitalPaid = Math.max(0, amt - interest - otherCosts);
-        const calcCapital = Math.max(0, payModal.calcPmt - interest);
-        const extraAmt = Math.max(0, amt - effectivePmt);
-        const isExtra = amt > effectivePmt + 100; // >$100 de diferencia para evitar redondeos
-        const isLess = amt > 0 && amt < effectivePmt;
-
-        return (
-          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "92vh", overflowY: "auto", border: `1.5px solid ${C.accentPurple}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <div style={{ color: C.text, fontWeight: 800, fontSize: 17 }}>💸 Registrar Pago</div>
-                <button onClick={() => setPayModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
-              </div>
-              <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>{loan.name} · cuota #{loan.paidInstallments + 1}</div>
-
-              {/* Monto pagado */}
-              <Label>¿Cuánto pagaste?</Label>
-              <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ ...inputSt, marginBottom: 12, fontSize: 18, fontWeight: 700 }} placeholder={String(effectivePmt)} />
-
-              {/* Desglose */}
-              {amt > 0 && (
-                <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: C.textMuted, fontSize: 12, fontWeight: 600 }}>Cuota esperada</span>
-                    <span style={{ color: C.text, fontSize: 12, fontWeight: 700 }}>{fmt(effectivePmt)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: C.textMuted, fontSize: 12 }}>→ Interés</span>
-                    <span style={{ color: C.accentRed, fontSize: 12 }}>{fmt(interest)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: C.textMuted, fontSize: 12 }}>→ Capital</span>
-                    <span style={{ color: C.accent, fontSize: 12 }}>{fmt(calcCapital)}</span>
-                  </div>
-                  {otherCosts > 0 && (
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: C.accentYellow, fontSize: 12 }}>→ Otros costos</span>
-                      <span style={{ color: C.accentYellow, fontSize: 12, fontWeight: 600 }}>{fmt(otherCosts)}</span>
-                    </div>
-                  )}
-                  {isExtra && (
-                    <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 2 }}>
-                      <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>Diferencia con cuota</span>
-                      <span style={{ color: C.accentPurple, fontSize: 12, fontWeight: 700 }}>+{fmt(extraAmt)}</span>
-                    </div>
-                  )}
-                  {isLess && (
-                    <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${C.accentRed}33`, paddingTop: 6, marginTop: 2 }}>
-                      <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>⚠️ Pago incompleto</span>
-                      <span style={{ color: C.accentRed, fontSize: 12, fontWeight: 700 }}>Faltan {fmt(effectivePmt - amt)}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Destino del excedente */}
-              {isExtra && (
-                <div style={{ marginBottom: 14 }}>
-                  <Label>Los {fmt(extraAmt)} extra son:</Label>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {[
-                      ["capital", "💰 Abono a capital", "Reduce el saldo del crédito"],
-                      ["extras", "📋 Gastos extras del crédito", "Seguros, comisiones u otros cobros del banco"],
-                    ].map(([val, title, desc]) => (
-                      <button key={val} onClick={() => setPayStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${payStrategy === val ? C.accentPurple : C.border}`, background: payStrategy === val ? C.accentPurple + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-                        <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${payStrategy === val ? C.accentPurple : C.border}`, background: payStrategy === val ? C.accentPurple : "transparent", flexShrink: 0, marginTop: 1 }} />
-                        <div>
-                          <div style={{ color: payStrategy === val ? C.accentPurple : C.text, fontWeight: 700, fontSize: 13 }}>{title}</div>
-                          <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Estrategia de abono a capital */}
-              {isExtra && payStrategy === "capital" && (
-                <div style={{ marginBottom: 14 }}>
-                  <Label>¿Cómo aplicar el abono a capital?</Label>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {[
-                      ["plazo", "⏱️ Reducir el plazo", "Terminas antes, misma cuota mensual"],
-                      ["cuota", "📉 Reducir la cuota", "Cuotas menores, mismo plazo"],
-                    ].map(([val, title, desc]) => (
-                      <button key={val} onClick={() => setPaySubStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${paySubStrategy === val ? C.accent : C.border}`, background: paySubStrategy === val ? C.accent + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-                        <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${paySubStrategy === val ? C.accent : C.border}`, background: paySubStrategy === val ? C.accent : "transparent", flexShrink: 0, marginTop: 1 }} />
-                        <div>
-                          <div style={{ color: paySubStrategy === val ? C.accent : C.text, fontWeight: 700, fontSize: 13 }}>{title}</div>
-                          <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Categoría de presupuesto */}
-              <div style={{ marginBottom: 14 }}>
-                <Label>Categoría del gasto</Label>
-                <select value={payCategory} onChange={e => setPayCategory(e.target.value)} style={inputSt}>
-                  <option value="">— Sin categoría —</option>
-                  {(state.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
-                  {(state.budgets || []).map(b => !state.categories?.includes(b.category) && <option key={b.category} value={b.category}>{b.category}</option>)}
-                </select>
-              </div>
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={confirmLoanPayment} style={{ ...btnPrimary(C.accentPurple), flex: 1 }}>✓ Confirmar pago</button>
-                <button onClick={() => setPayModal(null)} style={{ ...btnGhost, flex: 1 }}>Cancelar</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {payModal && (
+        <LoanPayModal
+          payModal={payModal}
+          state={state}
+          payAmount={payAmount}
+          setPayAmount={setPayAmount}
+          payStrategy={payStrategy}
+          setPayStrategy={setPayStrategy}
+          paySubStrategy={paySubStrategy}
+          setPaySubStrategy={setPaySubStrategy}
+          payCategory={payCategory}
+          setPayCategory={setPayCategory}
+          onConfirm={confirmLoanPayment}
+          onClose={() => setPayModal(null)}
+        />
+      )}
 
       {/* Past Purchase Modal — compras de meses anteriores */}
       {pastModal && (
@@ -1837,87 +1861,18 @@ const Deudas = ({ state, setState }) => {
       )}
 
       {/* Capital Payment Modal — abono a capital TC */}
-      {capitalModal && (() => {
-        const card = state.cards.find(c => c.id === capitalModal.cardId);
-        const purchase = card?.purchases.find(p => p.id === capitalModal.purchaseId);
-        if (!card || !purchase) return null;
-        const abono = +capitalAmount || 0;
-        const rate = purchase.zeroInterest ? 0 : card.rate;
-        const rows = buildPurchaseAmortization(purchase.amount, purchase.installments, rate);
-        const currentBalance = purchase.paidInstallments > 0
-          ? rows[purchase.paidInstallments - 1]?.balance || 0
-          : purchase.amount;
-        const newBalance = Math.max(0, currentBalance - abono);
-        const cuota = rows[purchase.paidInstallments]?.pmt || 0;
-        const r = rate / 100;
-        const newRemaining = capitalStrategy === "plazo"
-          ? (r === 0 ? Math.ceil(newBalance / (purchase.amount / purchase.installments)) : newBalance <= 0 ? 0 : Math.ceil(Math.log(cuota / Math.max(0.001, cuota - newBalance * r)) / Math.log(1 + r)))
-          : purchase.installments - purchase.paidInstallments;
-        const currentRemaining = purchase.installments - purchase.paidInstallments;
-
-        return (
-          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", border: `1.5px solid ${C.accentOrange}44`, paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>💰 Abono a capital</div>
-                <button onClick={() => setCapitalModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
-              </div>
-              <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 16 }}>{purchase.desc} · {card.name}</div>
-
-              <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Saldo actual</span>
-                  <span style={{ color: C.text, fontWeight: 700 }}>{fmt(currentBalance)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
-                  <span style={{ color: C.text, fontWeight: 700 }}>{currentRemaining}</span>
-                </div>
-              </div>
-
-              <Label>Monto a abonar a capital ($)</Label>
-              <input type="number" value={capitalAmount} onChange={e => setCapitalAmount(e.target.value)} style={{ ...inputSt, marginBottom: 14, fontSize: 18, fontWeight: 700 }} placeholder="0" />
-
-              <Label>¿Para qué usar el abono?</Label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-                {[
-                  ["plazo", "⏱️ Reducir el plazo", `Terminas antes. Cuotas restantes: ${currentRemaining} → ~${Math.max(0, newRemaining)}`],
-                  ["cuota", "💰 Reducir la cuota", "Mismas cuotas restantes pero monto mensual más bajo"],
-                ].map(([val, title, desc]) => (
-                  <button key={val} onClick={() => setCapitalStrategy(val)} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${capitalStrategy === val ? C.accentOrange : C.border}`, background: capitalStrategy === val ? C.accentOrange + "10" : "transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
-                    <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${capitalStrategy === val ? C.accentOrange : C.border}`, background: capitalStrategy === val ? C.accentOrange : "transparent", flexShrink: 0, marginTop: 1 }} />
-                    <div>
-                      <div style={{ color: capitalStrategy === val ? C.accentOrange : C.text, fontWeight: 700, fontSize: 13 }}>{title}</div>
-                      <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>{desc}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {abono > 0 && (
-                <div style={{ background: C.accentOrange + "08", border: `1px solid ${C.accentOrange}33`, borderRadius: 10, padding: 12, marginBottom: 14 }}>
-                  <div style={{ color: C.accentOrange, fontWeight: 700, fontSize: 12, marginBottom: 6 }}>Resultado del abono</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ color: C.textMuted, fontSize: 12 }}>Nuevo saldo</span>
-                    <span style={{ color: C.accent, fontWeight: 700 }}>{fmt(newBalance)}</span>
-                  </div>
-                  {capitalStrategy === "plazo" && (
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: C.textMuted, fontSize: 12 }}>Cuotas restantes</span>
-                      <span style={{ color: C.accentOrange, fontWeight: 700 }}>{currentRemaining} → {Math.max(0, newRemaining)}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={confirmCapitalPayment} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>✓ Confirmar abono</button>
-                <button onClick={() => setCapitalModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {capitalModal && (
+        <CapitalModal
+          capitalModal={capitalModal}
+          state={state}
+          capitalAmount={capitalAmount}
+          setCapitalAmount={setCapitalAmount}
+          capitalStrategy={capitalStrategy}
+          setCapitalStrategy={setCapitalStrategy}
+          onConfirm={confirmCapitalPayment}
+          onClose={() => setCapitalModal(null)}
+        />
+      )}
 
       {/* Edit Purchase Modal */}
       {editPurchase && (
