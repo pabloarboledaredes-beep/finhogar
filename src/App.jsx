@@ -250,10 +250,15 @@ const Dashboard = ({ state, setState }) => {
   }, [monthExpenses]);
 
   const totalSpent = Object.values(spentByCategory).reduce((s, v) => s + v, 0);
-  const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments).reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0), 0);
+
+  // ── Flujo libre real = Ingresos - Gastos (solo lo que afecta la liquidez) ──
+  const netAvail = totalIncome - totalSpent;
+
+  // ── Datos informativos (cuotas pendientes y ahorros — no afectan liquidez) ──
+  const totalCardDue = state.cards.reduce((cs, card) => cs + card.purchases.filter(p => p.paidInstallments < p.installments && !p.pendingNextCycle).reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0), 0);
   const totalLoanDue = state.loans.filter(l => !l.isVariable && !l.isPersonal).reduce((s, l) => { const { pmt } = buildLoanAmortization(l.principal, l.rate, l.totalInstallments); return s + pmt; }, 0);
   const totalDebtDue = totalCardDue + totalLoanDue;
-  const netAvail = totalIncome - totalSpent - totalDebtDue;
+  const totalSavings = (state.savings || []).reduce((s, sv) => s + (sv.current || 0), 0);
 
   const byMember = state.members.map(m => ({ ...m, income: monthIncomes.filter(i => i.memberId === m.id).reduce((s, i) => s + i.amount, 0) }));
 
@@ -274,8 +279,8 @@ const Dashboard = ({ state, setState }) => {
     const closingMonth = prevMonth;
     const closingIncomes = state.incomes.filter(i => monthOf(i.date) === closingMonth).reduce((s, i) => s + i.amount, 0);
     const closingExpenses = state.expenses.filter(e => monthOf(e.date) === closingMonth).reduce((s, v) => s + v.amount, 0);
-    const closingDebt = totalCardDue + totalLoanDue;
-    const closingFlow = closingIncomes - closingExpenses - closingDebt;
+    // Flujo = Ingresos - Gastos (las cuotas ya están registradas como gastos cuando se pagan)
+    const closingFlow = closingIncomes - closingExpenses;
     const prevBase = monthCloses[navigateMonth(closingMonth, -1)]?.liquidezFinal ?? (state.initialBalances ? state.initialBalances.efectivo + state.initialBalances.cuenta1 + state.initialBalances.cuenta2 : 0);
     const liquidezFinal = prevBase + closingFlow;
     setState(s => ({
@@ -342,7 +347,7 @@ const Dashboard = ({ state, setState }) => {
       <Box style={{ borderColor: netAvail >= 0 ? C.accent : C.accentRed }}>
         <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 600, letterSpacing: 0.8 }}>FLUJO LIBRE — {fmtMonth(viewMonth).toUpperCase()}</div>
         <div style={{ color: netAvail >= 0 ? C.accent : C.accentRed, fontSize: 32, fontWeight: 900, letterSpacing: -1, marginTop: 4 }}>{fmt(netAvail)}</div>
-        <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>Ingresos − Gastos − Cuotas deudas</div>
+        <div style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>Ingresos − Gastos</div>
         <Divider />
         <div style={{ display: "flex", gap: 16 }}>
           {byMember.map(m => (
@@ -354,23 +359,43 @@ const Dashboard = ({ state, setState }) => {
         </div>
       </Box>
 
-      {/* Stats grid */}
+      {/* Stats grid — real flow */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {[
-          ["Ingresos", fmt(totalIncome), "💰", C.accent],
-          ["Gastos", fmt(totalSpent), "🛒", C.accentOrange],
-          ["Cuotas/mes", fmt(totalDebtDue), "💳", C.accentPurple],
-          ["Ahorrado", fmt(state.savings.reduce((s, sv) => s + sv.current, 0)), "🐷", C.accentBlue],
-        ].map(([label, value, icon, color]) => (
-          <Box key={label}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: C.textMuted, fontSize: 11, fontWeight: 700 }}>{label.toUpperCase()}</span>
-              <span style={{ fontSize: 18 }}>{icon}</span>
-            </div>
-            <div style={{ color, fontSize: 20, fontWeight: 800, marginTop: 6 }}>{value}</div>
-          </Box>
-        ))}
+        <Box>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: C.textMuted, fontSize: 11, fontWeight: 700 }}>INGRESOS</span>
+            <span style={{ fontSize: 18 }}>💰</span>
+          </div>
+          <div style={{ color: C.accent, fontSize: 20, fontWeight: 800, marginTop: 6 }}>{fmt(totalIncome)}</div>
+        </Box>
+        <Box>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: C.textMuted, fontSize: 11, fontWeight: 700 }}>GASTOS</span>
+            <span style={{ fontSize: 18 }}>🛒</span>
+          </div>
+          <div style={{ color: C.accentOrange, fontSize: 20, fontWeight: 800, marginTop: 6 }}>{fmt(totalSpent)}</div>
+        </Box>
       </div>
+
+      {/* Informative block — cuotas + ahorros */}
+      <Box style={{ background: C.surfaceAlt, borderColor: C.border }}>
+        <div style={{ color: C.textMuted, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, marginBottom: 10 }}>📌 REFERENCIA — No afectan el flujo libre</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ background: C.surface, borderRadius: 10, padding: 10 }}>
+            <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700 }}>CUOTAS DEUDAS/MES</div>
+            <div style={{ color: C.accentPurple, fontSize: 18, fontWeight: 800, marginTop: 4 }}>{fmt(totalDebtDue)}</div>
+            <div style={{ color: C.textMuted, fontSize: 10, marginTop: 2 }}>TC: {fmt(totalCardDue)} · Créd: {fmt(totalLoanDue)}</div>
+          </div>
+          <div style={{ background: C.surface, borderRadius: 10, padding: 10 }}>
+            <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 700 }}>TOTAL AHORRADO</div>
+            <div style={{ color: C.accentBlue, fontSize: 18, fontWeight: 800, marginTop: 4 }}>{fmt(totalSavings)}</div>
+            <div style={{ color: C.textMuted, fontSize: 10, marginTop: 2 }}>{(state.savings || []).length} meta(s)</div>
+          </div>
+        </div>
+        <div style={{ color: C.textMuted, fontSize: 10, marginTop: 8, lineHeight: 1.5 }}>
+          Las cuotas se reflejan automáticamente en el flujo cuando se registra el pago.
+        </div>
+      </Box>
 
       {/* Liquidez + Posicion real */}
       {(state.initialBalances || prevMonthClose) && (
@@ -1155,6 +1180,9 @@ const Deudas = ({ state, setState }) => {
 
   // Compras pasadas — no afectan el flujo del mes actual
   const [pastModal, setPastModal] = useState(null); // cardId
+  const [cycleModal, setCycleModal] = useState(null); // cardId
+  const [cycleAmount, setCycleAmount] = useState("");
+  const [cycleCategory, setCycleCategory] = useState("");
   const [pastForm, setPastForm] = useState({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() });
 
   // Edit loan modal
@@ -1186,7 +1214,52 @@ const Deudas = ({ state, setState }) => {
 
   const payPurchaseInstallment = (cardId, purchaseId) => setState(s => ({ ...s, cards: s.cards.map(c => c.id === cardId ? { ...c, purchases: c.purchases.map(p => p.id === purchaseId ? { ...p, paidInstallments: Math.min(p.paidInstallments + 1, p.installments) } : p) } : c) }));
 
-  const openEditPurchase = (cardId, purchase) => {
+  // ── PAGAR CICLO COMPLETO TC ───────────────────────────────────────────────
+  // Avanza una cuota en todas las compras activas de la tarjeta
+  // Registra un solo gasto por el monto total pagado
+  const confirmCyclePayment = () => {
+    const amt = +cycleAmount;
+    if (!amt || !cycleModal) return;
+    const cat = cycleCategory || "Deudas";
+    const card = state.cards.find(c => c.id === cycleModal);
+    if (!card) return;
+
+    setState(s => ({
+      ...s,
+      cards: s.cards.map(c => c.id === cycleModal ? {
+        ...c,
+        purchases: c.purchases.map(p =>
+          p.paidInstallments < p.installments && !p.pendingNextCycle
+            ? { ...p, paidInstallments: p.paidInstallments + 1 }
+            : p
+        )
+      } : c),
+      expenses: [{
+        id: Date.now(),
+        memberId: s.members[0]?.id || 1,
+        category: cat,
+        desc: `Pago ciclo ${card.name}`,
+        amount: amt,
+        payMethod: "Transferencia",
+        cardId: cycleModal,
+        installments: 1,
+        date: getToday(),
+      }, ...s.expenses],
+      budgets: (s.budgets || []).map(b =>
+        b.category === cat ? { ...b, spent: (b.spent || 0) + amt } : b
+      ),
+      // Mark linked fixed bill as paid
+      fixedBills: (s.fixedBills || []).map(b =>
+        b.fromCardId === cycleModal || b.concept?.includes(card.name)
+          ? { ...b, payments: [...(b.payments || []).filter(p => p.month !== getCurrentMonth()), { month: getCurrentMonth(), paid: true, paidDate: getToday(), amount: amt }] }
+          : b
+      ),
+    }));
+
+    setCycleModal(null);
+    setCycleAmount("");
+    setCycleCategory("");
+  };
     setEditPurchase({ cardId, purchaseId: purchase.id });
     setEditPurchaseForm({
       desc: purchase.desc,
@@ -1709,6 +1782,51 @@ const Deudas = ({ state, setState }) => {
         />
       )}
 
+      {/* Cycle Payment Modal */}
+      {cycleModal && (() => {
+        const card = state.cards.find(c => c.id === cycleModal);
+        if (!card) return null;
+        const activePurchases = card.purchases.filter(p => p.paidInstallments < p.installments && !p.pendingNextCycle);
+        const calcTotal = activePurchases.reduce((sum, p) => sum + getPurchasePmt(p, card.rate), 0);
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "#000000BB", zIndex: 999, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div style={{ background: C.surface, borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxWidth: 520, maxHeight: "90vh", overflowY: "auto", paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <div style={{ color: C.accentOrange, fontWeight: 800, fontSize: 17 }}>💳 Pagar ciclo — {card.name}</div>
+                <button onClick={() => setCycleModal(null)} style={{ background: C.surfaceAlt, border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: C.textMuted }}>×</button>
+              </div>
+              <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 16, lineHeight: 1.5 }}>
+                Avanza una cuota en las <strong>{activePurchases.length}</strong> compras activas del ciclo actual. Registra un solo gasto por el total pagado.
+              </div>
+
+              {/* Calc reference */}
+              <div style={{ background: C.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ color: C.textMuted, fontSize: 12 }}>Total calculado del ciclo</span>
+                  <span style={{ color: C.text, fontWeight: 700 }}>{fmt(Math.round(calcTotal))}</span>
+                </div>
+                <div style={{ color: C.textMuted, fontSize: 11 }}>Ingresa el valor real que pagaste al banco (puede incluir intereses, seguros, etc.)</div>
+              </div>
+
+              <Label>Monto real pagado al banco ($)</Label>
+              <input type="number" value={cycleAmount} onChange={e => setCycleAmount(e.target.value)} placeholder={String(Math.round(calcTotal))} style={{ ...inputSt, fontSize: 18, fontWeight: 700, marginBottom: 14 }} />
+
+              <Label>Categoría del gasto</Label>
+              <select value={cycleCategory} onChange={e => setCycleCategory(e.target.value)} style={{ ...inputSt, marginBottom: 16 }}>
+                <option value="">— Sin categoría —</option>
+                {(state.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
+                {(state.budgets || []).filter(b => !(state.categories || []).includes(b.category)).map(b => <option key={b.category} value={b.category}>{b.category}</option>)}
+              </select>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={confirmCyclePayment} style={{ ...btnPrimary(C.accentOrange), flex: 1, padding: "13px" }}>✓ Registrar pago del ciclo</button>
+                <button onClick={() => setCycleModal(null)} style={{ ...btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Capital Payment Modal — abono a capital TC */}
       {capitalModal && (() => {
         const card = state.cards.find(c => c.id === capitalModal.cardId);
@@ -1951,8 +2069,14 @@ const Deudas = ({ state, setState }) => {
               🔄 Recalcular ciclo según corte día {card.dueDate}
             </button>
             <button
+              onClick={() => { setCycleModal(card.id); setCycleAmount(""); setCycleCategory(""); }}
+              style={{ ...btnPrimary(C.accentOrange), width: "100%", marginBottom: 10, fontSize: 13, padding: "11px" }}
+            >
+              💳 Pagar ciclo completo — {fmt(Math.round(card.currentDue))}
+            </button>
+            <button
               onClick={() => { setPastModal(card.id); setPastForm({ desc: "", amount: "", installments: "", paidInstallments: "0", zeroInterest: false, date: getToday() }); }}
-              style={{ ...btnPrimary(C.accentOrange + "CC", "#fff"), width: "100%", marginBottom: 14, fontSize: 12, padding: "9px", border: `1.5px dashed ${C.accentOrange}` }}
+              style={{ background: C.accentOrange + "15", border: `1.5px dashed ${C.accentOrange}66`, color: C.accentOrange, borderRadius: 8, padding: "9px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", fontWeight: 600, width: "100%", marginBottom: 14 }}
             >
               📅 Registrar compra de mes anterior
             </button>
